@@ -24,6 +24,7 @@ from .logging.activity_logger import setup_logging, ActivityLogger
 from .tools.web_search import WebSearchTool
 from .tools.pota_spots import POTASpotsTool
 from .tools.bbs_session import BBSSessionTool
+from .tools.qrz_tool import QRZTool
 from .auth.qrz_lookup import QRZLookup
 
 
@@ -253,6 +254,25 @@ class PacketClaude:
         bbs_tool = BBSSessionTool(packetclaude_app=self)
         tools.append(bbs_tool)
 
+        # Initialize QRZ lookup (needed for QRZ tool and authentication)
+        self.qrz_lookup = QRZLookup(
+            api_key=self.config.qrz_api_key,
+            username=self.config.qrz_username,
+            password=self.config.qrz_password,
+            enabled=self.config.qrz_enabled
+        )
+        if self.config.qrz_enabled:
+            logger.info("QRZ callsign lookup enabled")
+            # Add QRZ lookup tool for Claude
+            qrz_tool = QRZTool(
+                qrz_lookup=self.qrz_lookup,
+                enabled=True
+            )
+            tools.append(qrz_tool)
+            logger.info("QRZ lookup tool enabled for Claude")
+        else:
+            logger.warning("QRZ lookup disabled - no credentials provided")
+
         self.claude_client = ClaudeClient(
             api_key=self.config.anthropic_api_key,
             model=self.config.claude_model,
@@ -269,18 +289,6 @@ class PacketClaude:
             queries_per_day=self.config.rate_limit_per_day,
             enabled=self.config.rate_limit_enabled
         )
-
-        # Initialize QRZ lookup
-        self.qrz_lookup = QRZLookup(
-            api_key=self.config.qrz_api_key,
-            username=self.config.qrz_username,
-            password=self.config.qrz_password,
-            enabled=self.config.qrz_enabled
-        )
-        if self.config.qrz_enabled:
-            logger.info("QRZ callsign lookup enabled")
-        else:
-            logger.warning("QRZ lookup disabled - no credentials provided")
 
         logger.info("All components initialized successfully")
         self.running = True
@@ -384,7 +392,7 @@ class PacketClaude:
                 # IP:port format - need callsign
                 prompt = (
                     "Welcome to PacketClaude!\n\n"
-                    "Please enter your amateur radio callsign to continue: "
+                    "Callsign: "
                 )
                 self._send_to_station(connection, prompt)
             else:
