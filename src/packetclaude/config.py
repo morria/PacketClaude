@@ -174,6 +174,11 @@ class Config:
         return self.get('pota.enabled', False)
 
     @property
+    def pota_max_spots(self) -> int:
+        """Get maximum POTA spots to return"""
+        return self.get('pota.max_spots', 10)
+
+    @property
     def anthropic_api_key(self) -> str:
         """Get Anthropic API key from environment"""
         key = os.getenv('ANTHROPIC_API_KEY')

@@ -4,6 +4,7 @@ Handles communication with Anthropic's Claude API
 """
 import logging
 import time
+import json
 from typing import Optional, List, Dict, Any
 from anthropic import Anthropic, APIError, APIConnectionError
 
@@ -109,10 +110,15 @@ class ClaudeClient:
                         tool_input = block.input
                         tool_use_id = block.id
 
-                        logger.info(f"Executing tool: {tool_name}")
+                        logger.info(f"Executing tool: {tool_name} with input: {tool_input}")
 
-                        # Execute tool
-                        result = self._execute_tool(tool_name, tool_input)
+                        # Execute tool with error handling
+                        try:
+                            result = self._execute_tool(tool_name, tool_input)
+                            logger.debug(f"Tool result: {result[:200]}...")
+                        except Exception as e:
+                            logger.error(f"Tool execution error: {e}", exc_info=True)
+                            result = json.dumps({"error": f"Tool execution failed: {str(e)}"})
 
                         tool_results.append({
                             "type": "tool_result",

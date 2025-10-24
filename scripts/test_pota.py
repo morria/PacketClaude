@@ -28,8 +28,8 @@ def test_pota_spots():
         print(f"✗ Failed: {result_data['error']}")
         return False
 
-    print(f"✓ Found {result_data['count']} total spots")
-    if result_data['count'] > 0:
+    print(f"✓ Found {result_data['total_spots']} total spots, returned {result_data['returned_spots']}")
+    if result_data['returned_spots'] > 0:
         print(f"   Sample spot: {result_data['spots'][0]['activator']} on {result_data['spots'][0]['frequency']} kHz")
 
     # Test getting 20m spots
@@ -41,17 +41,15 @@ def test_pota_spots():
         print(f"✗ Failed: {result_data['error']}")
         return False
 
-    print(f"✓ Found {result_data['count']} spots on 20m")
+    print(f"✓ Found {result_data['total_spots']} total spots on 20m, showing {result_data['returned_spots']}")
 
     # Display first few 20m spots
-    if result_data['count'] > 0:
+    if result_data['returned_spots'] > 0:
         print("\n   Recent 20m spots:")
         for idx, spot in enumerate(result_data['spots'][:5], 1):
             print(f"   {idx}. {spot['activator']} @ {spot['frequency']} kHz")
             print(f"      Park: {spot['park']} - {spot['park_name']}")
-            print(f"      Mode: {spot['mode']}, Time: {spot['time']}")
-            if spot.get('comments'):
-                print(f"      Comments: {spot['comments']}")
+            print(f"      Mode: {spot['mode']}, Time: {spot['time']} UTC")
             print()
 
     # Test tool definition
@@ -65,7 +63,7 @@ def test_pota_spots():
     result = tool.execute_tool("pota_spots", {"band": "40m", "minutes": 30})
     result_data = json.loads(result)
     if "error" not in result_data:
-        print(f"✓ execute_tool works, found {result_data['count']} spots on 40m")
+        print(f"✓ execute_tool works, found {result_data['total_spots']} spots on 40m")
     else:
         print(f"✗ execute_tool failed: {result_data['error']}")
         return False

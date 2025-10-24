@@ -30,6 +30,7 @@ env/
 
 # Configuration (keep examples only)
 config/config.yaml
+config/direwolf.conf
 config/rate_limits.yaml
 
 # Logs

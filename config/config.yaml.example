@@ -87,6 +87,9 @@ pota:
   # Enable/disable POTA spots tool
   enabled: true
 
+  # Maximum number of spots to return (to conserve tokens)
+  max_spots: 10
+
 # Rate limiting configuration
 rate_limits:
   # Enable rate limiting

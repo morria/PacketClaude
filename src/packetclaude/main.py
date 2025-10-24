@@ -33,15 +33,38 @@ class PacketClaude:
     Main PacketClaude application
     """
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self,
+                 config_path: Optional[str] = None,
+                 telnet_only: bool = False,
+                 kiss_only: bool = False,
+                 telnet_port: Optional[int] = None,
+                 telnet_host: Optional[str] = None,
+                 direwolf_host: Optional[str] = None,
+                 direwolf_port: Optional[int] = None):
         """
         Initialize PacketClaude
 
         Args:
             config_path: Path to config file
+            telnet_only: Run in telnet-only mode (no KISS/Direwolf)
+            kiss_only: Run in KISS-only mode (no telnet)
+            telnet_port: Override telnet port
+            telnet_host: Override telnet host
+            direwolf_host: Override Direwolf host
+            direwolf_port: Override Direwolf port
         """
         # Load configuration
         self.config = Config(config_path)
+
+        # Store mode flags
+        self.telnet_only = telnet_only
+        self.kiss_only = kiss_only
+
+        # Store overrides
+        self._telnet_port_override = telnet_port
+        self._telnet_host_override = telnet_host
+        self._direwolf_host_override = direwolf_host
+        self._direwolf_port_override = direwolf_port
 
         # Setup logging
         setup_logging(
@@ -99,47 +122,68 @@ class PacketClaude:
         """Initialize all components"""
         logger.info("Initializing components...")
 
+        # Determine which interfaces to enable
+        enable_kiss = not self.telnet_only
+        enable_telnet = (not self.kiss_only) and (self.config.telnet_enabled or self.telnet_only)
+
         # Log startup configuration
         self.activity_logger.log_startup({
+            'mode': 'telnet-only' if self.telnet_only else ('kiss-only' if self.kiss_only else 'both'),
             'callsign': self.config.station_callsign,
-            'direwolf_host': self.config.direwolf_host,
-            'direwolf_port': self.config.direwolf_port,
-            'telnet_enabled': self.config.telnet_enabled,
-            'telnet_port': self.config.telnet_port if self.config.telnet_enabled else None,
-            'radio_enabled': self.config.radio_enabled,
+            'kiss_enabled': enable_kiss,
+            'direwolf_host': self._direwolf_host_override or self.config.direwolf_host if enable_kiss else None,
+            'direwolf_port': self._direwolf_port_override or self.config.direwolf_port if enable_kiss else None,
+            'telnet_enabled': enable_telnet,
+            'telnet_host': self._telnet_host_override or self.config.telnet_host if enable_telnet else None,
+            'telnet_port': self._telnet_port_override or self.config.telnet_port if enable_telnet else None,
+            'radio_enabled': self.config.radio_enabled if enable_kiss else False,
             'rate_limit_enabled': self.config.rate_limit_enabled,
         })
 
-        # Initialize KISS client
-        logger.info(f"Connecting to Direwolf at {self.config.direwolf_host}:{self.config.direwolf_port}")
-        self.kiss_client = KISSClient(
-            host=self.config.direwolf_host,
-            port=self.config.direwolf_port,
-            timeout=self.config.direwolf_timeout
-        )
+        # Initialize KISS client (if enabled)
+        if enable_kiss:
+            direwolf_host = self._direwolf_host_override or self.config.direwolf_host
+            direwolf_port = self._direwolf_port_override or self.config.direwolf_port
 
-        if not self.kiss_client.connect():
-            raise RuntimeError("Failed to connect to Direwolf KISS TNC")
+            logger.info(f"Connecting to Direwolf at {direwolf_host}:{direwolf_port}")
+            self.kiss_client = KISSClient(
+                host=direwolf_host,
+                port=direwolf_port,
+                timeout=self.config.direwolf_timeout
+            )
 
-        # Initialize connection handler
-        callsign, ssid = self._parse_callsign(self.config.station_callsign)
-        self.connection_handler = AX25ConnectionHandler(
-            self.kiss_client,
-            callsign,
-            ssid
-        )
+            if not self.kiss_client.connect():
+                raise RuntimeError(
+                    f"Failed to connect to Direwolf KISS TNC at {direwolf_host}:{direwolf_port}\n"
+                    f"Make sure Direwolf is running or use --telnet-only mode"
+                )
 
-        # Set up connection callbacks
-        self.connection_handler.on_connect = self._on_connect
-        self.connection_handler.on_disconnect = self._on_disconnect
-        self.connection_handler.on_data = self._on_data
+            # Initialize connection handler
+            callsign, ssid = self._parse_callsign(self.config.station_callsign)
+            self.connection_handler = AX25ConnectionHandler(
+                self.kiss_client,
+                callsign,
+                ssid
+            )
+
+            # Set up connection callbacks
+            self.connection_handler.on_connect = self._on_connect
+            self.connection_handler.on_disconnect = self._on_disconnect
+            self.connection_handler.on_data = self._on_data
+        else:
+            logger.info("KISS/Direwolf connection disabled (telnet-only mode)")
+            self.kiss_client = None
+            self.connection_handler = None
 
         # Initialize telnet server
-        if self.config.telnet_enabled:
-            logger.info(f"Starting telnet server on {self.config.telnet_host}:{self.config.telnet_port}")
+        if enable_telnet:
+            telnet_host = self._telnet_host_override or self.config.telnet_host
+            telnet_port = self._telnet_port_override or self.config.telnet_port
+
+            logger.info(f"Starting telnet server on {telnet_host}:{telnet_port}")
             self.telnet_server = TelnetServer(
-                host=self.config.telnet_host,
-                port=self.config.telnet_port
+                host=telnet_host,
+                port=telnet_port
             )
 
             # Set up telnet callbacks
@@ -148,13 +192,18 @@ class PacketClaude:
             self.telnet_server.on_data = self._on_data
 
             if not self.telnet_server.start():
-                logger.warning("Failed to start telnet server, continuing without it")
-                self.telnet_server = None
+                error_msg = f"Failed to start telnet server on {telnet_host}:{telnet_port}"
+                if self.telnet_only:
+                    raise RuntimeError(error_msg + " (telnet-only mode requires telnet)")
+                else:
+                    logger.warning(error_msg + ", continuing without it")
+                    self.telnet_server = None
         else:
-            logger.info("Telnet server disabled")
+            logger.info("Telnet server disabled (kiss-only mode)")
+            self.telnet_server = None
 
-        # Initialize radio control
-        if self.config.radio_enabled:
+        # Initialize radio control (only if KISS is enabled)
+        if enable_kiss and self.config.radio_enabled:
             logger.info("Initializing radio control...")
             self.radio_control = RadioControl(
                 model=self.config.radio_model,
@@ -164,7 +213,10 @@ class PacketClaude:
             )
             self.radio_control.connect()
         else:
-            logger.info("Radio control disabled, using dummy control")
+            if enable_kiss:
+                logger.info("Radio control disabled, using dummy control")
+            else:
+                logger.info("Radio control disabled (telnet-only mode)")
             self.radio_control = DummyRadioControl()
 
         # Initialize Claude client with tools
@@ -182,7 +234,10 @@ class PacketClaude:
 
         if self.config.pota_enabled:
             logger.info("POTA spots tool enabled")
-            pota_tool = POTASpotsTool(enabled=True)
+            pota_tool = POTASpotsTool(
+                enabled=True,
+                max_spots=self.config.pota_max_spots
+            )
             tools.append(pota_tool)
 
         self.claude_client = ClaudeClient(
@@ -212,35 +267,44 @@ class PacketClaude:
 
     def _run(self):
         """Main run loop"""
-        logger.info(f"PacketClaude ready - listening as {self.config.station_callsign}")
+        if self.kiss_client:
+            logger.info(f"PacketClaude ready - listening as {self.config.station_callsign}")
+        if self.telnet_server:
+            logger.info(f"PacketClaude ready - telnet on {self.telnet_server.host}:{self.telnet_server.port}")
         logger.info("Press Ctrl+C to stop")
 
         # Start cleanup thread
         cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
         cleanup_thread.start()
 
-        # Main receive loop
-        while self.running:
-            try:
-                # Receive frame from KISS TNC
-                frame_data = self.kiss_client.receive_frame(timeout=1.0)
+        # Main receive loop (only if KISS is enabled)
+        if self.kiss_client:
+            while self.running:
+                try:
+                    # Receive frame from KISS TNC
+                    frame_data = self.kiss_client.receive_frame(timeout=1.0)
 
-                if frame_data:
-                    try:
-                        # Decode AX.25 frame
-                        frame = AX25Frame.decode(frame_data)
-                        logger.debug(f"Received frame: {frame}")
+                    if frame_data:
+                        try:
+                            # Decode AX.25 frame
+                            frame = AX25Frame.decode(frame_data)
+                            logger.debug(f"Received frame: {frame}")
 
-                        # Handle frame
-                        self.connection_handler.handle_incoming_frame(frame)
+                            # Handle frame
+                            self.connection_handler.handle_incoming_frame(frame)
 
-                    except Exception as e:
-                        logger.error(f"Error processing frame: {e}")
-                        self.activity_logger.log_error("FrameProcessing", str(e), exception=e)
+                        except Exception as e:
+                            logger.error(f"Error processing frame: {e}")
+                            self.activity_logger.log_error("FrameProcessing", str(e), exception=e)
 
-            except Exception as e:
-                logger.error(f"Error in receive loop: {e}")
-                time.sleep(1)  # Prevent tight loop on errors
+                except Exception as e:
+                    logger.error(f"Error in receive loop: {e}")
+                    time.sleep(1)  # Prevent tight loop on errors
+        else:
+            # Telnet-only mode - just keep running
+            logger.info("Running in telnet-only mode (no KISS processing)")
+            while self.running:
+                time.sleep(1)
 
     def _cleanup_loop(self):
         """Background cleanup loop"""
@@ -253,9 +317,10 @@ class PacketClaude:
                     break
 
                 # Cleanup stale connections
-                self.connection_handler.cleanup_stale_connections(
-                    timeout=self.config.session_timeout if self.config.session_timeout > 0 else 300
-                )
+                if self.connection_handler:
+                    self.connection_handler.cleanup_stale_connections(
+                        timeout=self.config.session_timeout if self.config.session_timeout > 0 else 300
+                    )
 
                 # Cleanup stale telnet connections
                 if self.telnet_server:
@@ -529,21 +594,117 @@ def main():
     """Main entry point"""
     import argparse
 
-    parser = argparse.ArgumentParser(description='PacketClaude - AX.25 Packet Radio Gateway for Claude AI')
+    parser = argparse.ArgumentParser(
+        description='PacketClaude - AX.25 Packet Radio Gateway for Claude AI',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run with both KISS and telnet (default)
+  %(prog)s
+
+  # Run telnet-only mode (no radio/Direwolf required)
+  %(prog)s --telnet-only
+
+  # Run KISS-only mode (no telnet)
+  %(prog)s --kiss-only
+
+  # Specify custom config file
+  %(prog)s -c /path/to/config.yaml
+
+  # Telnet-only on custom port
+  %(prog)s --telnet-only --telnet-port 8888
+        """
+    )
+
     parser.add_argument(
         '-c', '--config',
         help='Path to configuration file',
         default=None
     )
 
+    # Interface mode options
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        '--telnet-only',
+        action='store_true',
+        help='Run in telnet-only mode (disable KISS/Direwolf connection)'
+    )
+    mode_group.add_argument(
+        '--kiss-only',
+        action='store_true',
+        help='Run KISS-only mode (disable telnet server)'
+    )
+
+    # Override options
+    parser.add_argument(
+        '--telnet-port',
+        type=int,
+        help='Override telnet port from config'
+    )
+    parser.add_argument(
+        '--telnet-host',
+        help='Override telnet host from config'
+    )
+    parser.add_argument(
+        '--direwolf-host',
+        help='Override Direwolf host from config'
+    )
+    parser.add_argument(
+        '--direwolf-port',
+        type=int,
+        help='Override Direwolf port from config'
+    )
+
     args = parser.parse_args()
 
+    # Validate environment
+    if not _validate_environment():
+        sys.exit(1)
+
     try:
-        app = PacketClaude(config_path=args.config)
+        app = PacketClaude(
+            config_path=args.config,
+            telnet_only=args.telnet_only,
+            kiss_only=args.kiss_only,
+            telnet_port=args.telnet_port,
+            telnet_host=args.telnet_host,
+            direwolf_host=args.direwolf_host,
+            direwolf_port=args.direwolf_port
+        )
         app.start()
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user")
+        sys.exit(0)
     except Exception as e:
         print(f"Fatal error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def _validate_environment() -> bool:
+    """
+    Validate environment before starting
+
+    Returns:
+        True if environment is valid
+    """
+    from pathlib import Path
+    import os
+
+    # Check for config file
+    config_path = os.getenv("CONFIG_PATH", "config/config.yaml")
+    if not Path(config_path).exists():
+        print(f"Error: Configuration file not found: {config_path}", file=sys.stderr)
+        print("Please copy config/config.yaml.example to config/config.yaml and configure it", file=sys.stderr)
+        return False
+
+    # Check for .env file
+    if not Path(".env").exists():
+        print("Warning: .env file not found", file=sys.stderr)
+        print("Please copy .env.example to .env and add your Anthropic API key", file=sys.stderr)
+        print("Or set ANTHROPIC_API_KEY environment variable", file=sys.stderr)
+        # Don't fail here, let Config class handle it
+
+    return True
 
 
 if __name__ == '__main__':

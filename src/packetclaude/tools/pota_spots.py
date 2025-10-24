@@ -37,14 +37,16 @@ class POTASpotsTool:
         "2m": (144.0, 148.0),
     }
 
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, max_spots: int = 10):
         """
         Initialize POTA spots tool
 
         Args:
             enabled: Enable/disable POTA functionality
+            max_spots: Maximum number of spots to return (default: 10)
         """
         self.enabled = enabled
+        self.max_spots = max_spots
 
     def _freq_to_band(self, freq_khz: float) -> Optional[str]:
         """
@@ -84,10 +86,13 @@ class POTASpotsTool:
             logger.info(f"Fetching POTA spots (band={band}, minutes={minutes})")
 
             # Fetch spots from API
+            logger.debug(f"Requesting POTA API: {self.API_URL}")
             response = requests.get(self.API_URL, timeout=10)
+            logger.debug(f"POTA API response status: {response.status_code}")
             response.raise_for_status()
 
             all_spots = response.json()
+            logger.debug(f"POTA API returned {len(all_spots)} total spots")
 
             # Calculate time threshold
             now = datetime.utcnow()
@@ -113,18 +118,14 @@ class POTASpotsTool:
                     if band and spot_band != band:
                         continue
 
-                    # Add filtered spot with band info
+                    # Add filtered spot with band info (only essential fields to reduce token usage)
                     filtered_spots.append({
-                        "spotter": spot.get("spotter", ""),
                         "activator": spot.get("activator", ""),
                         "frequency": freq_khz,
-                        "band": spot_band,
                         "mode": spot.get("mode", ""),
                         "park": spot.get("reference", ""),
                         "park_name": spot.get("name", ""),
-                        "location": spot.get("locationDesc", ""),
-                        "time": spot_time_str,
-                        "comments": spot.get("comments", "")
+                        "time": spot_time_str.split("T")[1][:5]  # Just HH:MM
                     })
 
                 except (ValueError, KeyError) as e:
@@ -134,14 +135,22 @@ class POTASpotsTool:
             # Sort by time (most recent first)
             filtered_spots.sort(key=lambda x: x["time"], reverse=True)
 
-            logger.info(f"Found {len(filtered_spots)} POTA spots")
+            # Limit number of spots to reduce token usage
+            total_count = len(filtered_spots)
+            filtered_spots = filtered_spots[:self.max_spots]
 
-            return json.dumps({
+            logger.info(f"Found {total_count} POTA spots, returning {len(filtered_spots)}")
+
+            result = json.dumps({
                 "band": band or "all",
                 "time_window_minutes": minutes,
-                "count": len(filtered_spots),
+                "total_spots": total_count,
+                "returned_spots": len(filtered_spots),
                 "spots": filtered_spots
             })
+
+            logger.debug(f"Returning {len(result)} bytes of POTA data")
+            return result
 
         except requests.RequestException as e:
             logger.error(f"POTA API request error: {e}")
@@ -149,7 +158,7 @@ class POTASpotsTool:
                 "error": f"Failed to fetch POTA spots: {str(e)}"
             })
         except Exception as e:
-            logger.error(f"POTA spots error: {e}")
+            logger.error(f"POTA spots error: {e}", exc_info=True)
             return json.dumps({
                 "error": f"Error processing POTA spots: {str(e)}"
             })

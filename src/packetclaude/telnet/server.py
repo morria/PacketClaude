@@ -13,6 +13,19 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
+# Telnet protocol constants (RFC 854, RFC 1572)
+IAC = b'\xff'  # Interpret As Command
+WILL = b'\xfb'
+WONT = b'\xfc'
+DO = b'\xfd'
+DONT = b'\xfe'
+SB = b'\xfa'  # Subnegotiation Begin
+SE = b'\xf0'  # Subnegotiation End
+
+# Telnet options
+TELOPT_NEW_ENVIRON = b'\x27'  # RFC 1572 - New Environment Option
+
+
 class ConnectionState(Enum):
     """Connection states"""
     DISCONNECTED = "disconnected"
@@ -40,13 +53,14 @@ class TelnetConnection:
         self.packets_received = 0
         self.connection_id: Optional[int] = None
 
-        # Use IP:port as identifier
-        self._remote_address = f"{address[0]}:{address[1]}"
+        # Callsign detection
+        self.callsign: Optional[str] = None  # Detected callsign from telnet login
+        self._remote_address = f"{address[0]}:{address[1]}"  # Default identifier
 
     @property
     def remote_address(self) -> str:
-        """Get remote address string"""
-        return self._remote_address
+        """Get remote address string - returns callsign if detected, otherwise IP:port"""
+        return self.callsign if self.callsign else self._remote_address
 
     @property
     def local_address(self) -> str:
@@ -79,6 +93,17 @@ class TelnetConnection:
             self.state = ConnectionState.DISCONNECTED
         except Exception as e:
             logger.error(f"Error closing connection: {e}")
+
+    def set_callsign(self, callsign: str):
+        """
+        Set the callsign for this connection
+
+        Args:
+            callsign: User's callsign or login name
+        """
+        if callsign and callsign.strip():
+            self.callsign = callsign.strip().upper()
+            logger.info(f"Connection {self._remote_address} identified as {self.callsign}")
 
     def __str__(self):
         return f"{self.remote_address} ({self.state.value})"
@@ -168,7 +193,16 @@ class TelnetServer:
 
                 # Create connection object
                 conn = TelnetConnection(client_socket, address)
-                self.connections[conn.remote_address] = conn
+
+                # Request environment variables from client (RFC 1572)
+                # This asks the client to send USER, LOGNAME, etc.
+                try:
+                    # IAC DO NEW-ENVIRON - ask client to send environment
+                    client_socket.sendall(IAC + DO + TELOPT_NEW_ENVIRON)
+                except Exception as e:
+                    logger.warning(f"Could not request telnet environment: {e}")
+
+                self.connections[conn._remote_address] = conn
 
                 # Start receive thread for this connection
                 recv_thread = threading.Thread(
@@ -189,6 +223,107 @@ class TelnetServer:
                 if self.running:
                     logger.error(f"Error accepting connection: {e}")
 
+    def _parse_telnet_data(self, conn: TelnetConnection, data: bytes) -> bytes:
+        """
+        Parse telnet protocol data and extract environment variables
+
+        Args:
+            conn: Connection receiving data
+            data: Raw data from client
+
+        Returns:
+            Data with telnet protocol sequences removed
+        """
+        # Look for IAC sequences
+        if IAC not in data:
+            return data
+
+        result = b""
+        i = 0
+        while i < len(data):
+            if data[i:i+1] == IAC:
+                if i + 1 < len(data):
+                    cmd = data[i+1:i+2]
+
+                    # Handle subnegotiation (SB ... SE)
+                    if cmd == SB and i + 2 < len(data):
+                        option = data[i+2:i+3]
+
+                        # Find SE (end of subnegotiation)
+                        se_pos = data.find(SE, i + 3)
+                        if se_pos != -1:
+                            if option == TELOPT_NEW_ENVIRON:
+                                # Parse environment variables
+                                env_data = data[i+3:se_pos]
+                                self._parse_environ(conn, env_data)
+                            i = se_pos + 1
+                            continue
+
+                    # Skip IAC commands (WILL, WONT, DO, DONT)
+                    if cmd in (WILL, WONT, DO, DONT):
+                        i += 3  # IAC + CMD + OPTION
+                        continue
+
+                    # Double IAC means literal 0xFF
+                    if cmd == IAC:
+                        result += IAC
+                        i += 2
+                        continue
+
+                    i += 2
+                else:
+                    i += 1
+            else:
+                result += data[i:i+1]
+                i += 1
+
+        return result
+
+    def _parse_environ(self, conn: TelnetConnection, env_data: bytes):
+        """
+        Parse NEW-ENVIRON subnegotiation data
+
+        Args:
+            conn: Connection
+            env_data: Environment data from subnegotiation
+        """
+        # Environment variable format: VAR name VALUE value ...
+        # VAR = 0, VALUE = 1, ESC = 2, USERVAR = 3
+        VAR = 0
+        VALUE = 1
+
+        i = 0
+        while i < len(env_data):
+            if env_data[i] == VAR or env_data[i] == 3:  # VAR or USERVAR
+                # Read variable name
+                i += 1
+                name_start = i
+                while i < len(env_data) and env_data[i] not in (VAR, VALUE, 2, 3):
+                    i += 1
+                var_name = env_data[name_start:i].decode('ascii', errors='ignore')
+
+                # Read value if present
+                var_value = ""
+                if i < len(env_data) and env_data[i] == VALUE:
+                    i += 1
+                    value_start = i
+                    while i < len(env_data) and env_data[i] not in (VAR, VALUE, 2, 3):
+                        i += 1
+                    var_value = env_data[value_start:i].decode('ascii', errors='ignore')
+
+                # Check if this is a login name variable
+                if var_name.upper() in ('USER', 'LOGNAME') and var_value:
+                    logger.info(f"Detected telnet login for {conn._remote_address}: {var_value}")
+                    conn.set_callsign(var_value)
+
+                    # Update connection key in dictionary
+                    if conn._remote_address in self.connections:
+                        del self.connections[conn._remote_address]
+                        self.connections[conn.remote_address] = conn
+                    break
+            else:
+                i += 1
+
     def _receive_loop(self, conn: TelnetConnection):
         """
         Receive data from a connection
@@ -207,6 +342,9 @@ class TelnetServer:
                     if not data:
                         # Connection closed
                         break
+
+                    # Parse telnet protocol data
+                    data = self._parse_telnet_data(conn, data)
 
                     buffer += data
                     conn.last_activity = time.time()
