@@ -15,11 +15,14 @@ from .database import Database
 from .ax25.kiss import KISSClient
 from .ax25.protocol import AX25Frame
 from .ax25.connection import AX25ConnectionHandler, AX25Connection
+from .telnet.server import TelnetServer, TelnetConnection
 from .radio.hamlib_control import RadioControl, DummyRadioControl
 from .claude.client import ClaudeClient
 from .claude.session import SessionManager
 from .auth.rate_limiter import RateLimiter
 from .logging.activity_logger import setup_logging, ActivityLogger
+from .tools.web_search import WebSearchTool
+from .tools.pota_spots import POTASpotsTool
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,7 @@ class PacketClaude:
         # Initialize components
         self.kiss_client: Optional[KISSClient] = None
         self.connection_handler: Optional[AX25ConnectionHandler] = None
+        self.telnet_server: Optional[TelnetServer] = None
         self.radio_control: Optional[RadioControl] = None
         self.claude_client: Optional[ClaudeClient] = None
         self.session_manager: Optional[SessionManager] = None
@@ -100,6 +104,8 @@ class PacketClaude:
             'callsign': self.config.station_callsign,
             'direwolf_host': self.config.direwolf_host,
             'direwolf_port': self.config.direwolf_port,
+            'telnet_enabled': self.config.telnet_enabled,
+            'telnet_port': self.config.telnet_port if self.config.telnet_enabled else None,
             'radio_enabled': self.config.radio_enabled,
             'rate_limit_enabled': self.config.rate_limit_enabled,
         })
@@ -128,6 +134,25 @@ class PacketClaude:
         self.connection_handler.on_disconnect = self._on_disconnect
         self.connection_handler.on_data = self._on_data
 
+        # Initialize telnet server
+        if self.config.telnet_enabled:
+            logger.info(f"Starting telnet server on {self.config.telnet_host}:{self.config.telnet_port}")
+            self.telnet_server = TelnetServer(
+                host=self.config.telnet_host,
+                port=self.config.telnet_port
+            )
+
+            # Set up telnet callbacks
+            self.telnet_server.on_connect = self._on_connect
+            self.telnet_server.on_disconnect = self._on_disconnect
+            self.telnet_server.on_data = self._on_data
+
+            if not self.telnet_server.start():
+                logger.warning("Failed to start telnet server, continuing without it")
+                self.telnet_server = None
+        else:
+            logger.info("Telnet server disabled")
+
         # Initialize radio control
         if self.config.radio_enabled:
             logger.info("Initializing radio control...")
@@ -142,14 +167,31 @@ class PacketClaude:
             logger.info("Radio control disabled, using dummy control")
             self.radio_control = DummyRadioControl()
 
-        # Initialize Claude client
+        # Initialize Claude client with tools
         logger.info("Initializing Claude API client...")
+
+        # Initialize tools
+        tools = []
+        if self.config.search_enabled:
+            logger.info("Web search enabled")
+            search_tool = WebSearchTool(
+                max_results=self.config.search_max_results,
+                enabled=True
+            )
+            tools.append(search_tool)
+
+        if self.config.pota_enabled:
+            logger.info("POTA spots tool enabled")
+            pota_tool = POTASpotsTool(enabled=True)
+            tools.append(pota_tool)
+
         self.claude_client = ClaudeClient(
             api_key=self.config.anthropic_api_key,
             model=self.config.claude_model,
             max_tokens=self.config.claude_max_tokens,
             temperature=self.config.claude_temperature,
-            system_prompt=self.config.claude_system_prompt
+            system_prompt=self.config.claude_system_prompt,
+            tools=tools
         )
 
         # Initialize session manager
@@ -214,6 +256,12 @@ class PacketClaude:
                 self.connection_handler.cleanup_stale_connections(
                     timeout=self.config.session_timeout if self.config.session_timeout > 0 else 300
                 )
+
+                # Cleanup stale telnet connections
+                if self.telnet_server:
+                    self.telnet_server.cleanup_stale_connections(
+                        timeout=self.config.session_timeout if self.config.session_timeout > 0 else 300
+                    )
 
                 # Cleanup idle sessions
                 self.session_manager.cleanup_idle_sessions(
@@ -288,7 +336,11 @@ class PacketClaude:
                 return
             elif message.lower() in ['quit', 'bye', 'exit', '73']:
                 self._send_to_station(connection, "73! Goodbye.\n")
-                self.connection_handler.disconnect(connection)
+                # Disconnect based on connection type
+                if isinstance(connection, TelnetConnection):
+                    self.telnet_server.disconnect(connection)
+                else:
+                    self.connection_handler.disconnect(connection)
                 return
             elif message.lower() == 'status':
                 self._send_status(connection)
@@ -394,15 +446,20 @@ class PacketClaude:
             )
             self._send_to_station(connection, "Internal error. Please try again.\n")
 
-    def _send_to_station(self, connection: AX25Connection, message: str):
+    def _send_to_station(self, connection, message: str):
         """Send message to connected station"""
         try:
-            # Split message into chunks if needed (max ~256 bytes per packet)
-            chunk_size = 200
-            for i in range(0, len(message), chunk_size):
-                chunk = message[i:i + chunk_size]
-                self.connection_handler.send_data(connection, chunk.encode('utf-8'))
-                time.sleep(0.1)  # Small delay between packets
+            # Check connection type
+            if isinstance(connection, TelnetConnection):
+                # Telnet connection - send directly
+                self.telnet_server.send_data(connection, message.encode('utf-8'))
+            else:
+                # AX.25 connection - split message into chunks if needed (max ~256 bytes per packet)
+                chunk_size = 200
+                for i in range(0, len(message), chunk_size):
+                    chunk = message[i:i + chunk_size]
+                    self.connection_handler.send_data(connection, chunk.encode('utf-8'))
+                    time.sleep(0.1)  # Small delay between packets
         except Exception as e:
             logger.error(f"Error sending to station: {e}")
 
@@ -452,6 +509,10 @@ Your conversation context is preserved during the session.
         if self.connection_handler:
             for conn in self.connection_handler.get_all_connections():
                 self.connection_handler.disconnect(conn)
+
+        # Disconnect all telnet connections
+        if self.telnet_server:
+            self.telnet_server.stop()
 
         # Disconnect from radio
         if self.radio_control:

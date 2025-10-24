@@ -49,6 +49,7 @@ data/
 *.swo
 *~
 .DS_Store
+.vim
 
 # Testing
 .pytest_cache/

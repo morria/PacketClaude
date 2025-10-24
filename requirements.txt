@@ -2,6 +2,13 @@
 anthropic>=0.39.0
 pyyaml>=6.0.1
 python-dotenv>=1.0.0
+pyright
+
+# Web search
+ddgs>=0.1.0
+
+# HTTP requests
+requests>=2.31.0
 
 # AX.25 and packet radio
 # Note: We'll use socket-based KISS protocol implementation (custom)

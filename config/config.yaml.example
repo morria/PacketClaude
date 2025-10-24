@@ -23,6 +23,17 @@ direwolf:
   # Connection timeout in seconds
   timeout: 30
 
+# Telnet server configuration
+telnet:
+  # Enable/disable telnet server
+  enabled: true
+
+  # Host to bind to (0.0.0.0 for all interfaces, localhost for local only)
+  host: "localhost"
+
+  # Port to listen on
+  port: 8023
+
 # Radio control via Hamlib
 radio:
   # Enable/disable radio control
@@ -62,6 +73,19 @@ claude:
     The user is a licensed amateur radio operator. Be helpful, accurate, and brief.
     Avoid very long responses as they consume significant airtime.
     If a topic requires a long explanation, offer to break it into parts.
+
+# Web search configuration
+search:
+  # Enable/disable web search capability
+  enabled: true
+
+  # Maximum number of search results to return
+  max_results: 5
+
+# POTA (Parks on the Air) spots configuration
+pota:
+  # Enable/disable POTA spots tool
+  enabled: true
 
 # Rate limiting configuration
 rate_limits:

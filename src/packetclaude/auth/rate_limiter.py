@@ -90,15 +90,22 @@ class RateLimiter:
     @staticmethod
     def is_valid_callsign(callsign: str) -> bool:
         """
-        Validate amateur radio callsign format
+        Validate amateur radio callsign format or telnet identifier
 
         Args:
-            callsign: Callsign to validate
+            callsign: Callsign to validate (or IP:port for telnet)
 
         Returns:
             True if valid format
         """
-        # Basic callsign validation
+        # Check if this is a telnet connection (IP:port format)
+        # IPv4: nnn.nnn.nnn.nnn:port
+        # IPv6: [xxxx:xxxx:...]:port
+        telnet_pattern = r'^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+)|(\[[\da-fA-F:]+\]:\d+)$'
+        if re.match(telnet_pattern, callsign):
+            return True
+
+        # Basic amateur radio callsign validation
         # Format: 1-2 characters, digit, 1-4 characters, optional -SSID
         pattern = r'^[A-Z0-9]{1,2}[0-9][A-Z0-9]{1,4}(-[0-9]{1,2})?$'
 

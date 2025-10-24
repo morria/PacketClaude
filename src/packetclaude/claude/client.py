@@ -4,7 +4,7 @@ Handles communication with Anthropic's Claude API
 """
 import logging
 import time
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from anthropic import Anthropic, APIError, APIConnectionError
 
 
@@ -20,7 +20,8 @@ class ClaudeClient:
                  model: str = "claude-3-5-sonnet-20241022",
                  max_tokens: int = 500,
                  temperature: float = 0.7,
-                 system_prompt: str = "You are a helpful assistant."):
+                 system_prompt: str = "You are a helpful assistant.",
+                 tools: Optional[List[Any]] = None):
         """
         Initialize Claude client
 
@@ -30,12 +31,15 @@ class ClaudeClient:
             max_tokens: Maximum tokens in response
             temperature: Temperature for generation
             system_prompt: System prompt
+            tools: List of tool objects (e.g., WebSearchTool)
         """
         self.client = Anthropic(api_key=api_key)
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.system_prompt = system_prompt
+        self.tools = tools or []
+        self.tool_definitions = [tool.get_tool_definition() for tool in self.tools]
 
     def send_message(self,
                     message: str,
@@ -66,32 +70,86 @@ class ClaudeClient:
                 "content": message
             })
 
-            # Call API
+            # Call API with tool support
             logger.debug(f"Sending message to Claude: {message[:50]}...")
 
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                system=self.system_prompt,
-                messages=messages
-            )
+            # Prepare API call parameters
+            api_params = {
+                "model": self.model,
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature,
+                "system": self.system_prompt,
+                "messages": messages
+            }
 
-            # Extract response text
+            # Add tools if available
+            if self.tool_definitions:
+                api_params["tools"] = self.tool_definitions
+
+            response = self.client.messages.create(**api_params)
+
+            # Handle tool use (agentic loop)
+            total_tokens = 0
+            max_tool_iterations = 5
+            iteration = 0
+
+            while response.stop_reason == "tool_use" and iteration < max_tool_iterations:
+                iteration += 1
+                logger.debug(f"Tool use iteration {iteration}")
+
+                # Track tokens
+                if hasattr(response, 'usage'):
+                    total_tokens += response.usage.input_tokens + response.usage.output_tokens
+
+                # Process tool calls
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        tool_name = block.name
+                        tool_input = block.input
+                        tool_use_id = block.id
+
+                        logger.info(f"Executing tool: {tool_name}")
+
+                        # Execute tool
+                        result = self._execute_tool(tool_name, tool_input)
+
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": result
+                        })
+
+                # Add assistant message with tool use
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content
+                })
+
+                # Add tool results
+                messages.append({
+                    "role": "user",
+                    "content": tool_results
+                })
+
+                # Continue conversation
+                api_params["messages"] = messages
+                response = self.client.messages.create(**api_params)
+
+            # Extract final response text
             response_text = ""
             for block in response.content:
                 if hasattr(block, 'text'):
                     response_text += block.text
 
-            # Get token usage
-            tokens_used = None
+            # Get total token usage
             if hasattr(response, 'usage'):
-                tokens_used = response.usage.input_tokens + response.usage.output_tokens
+                total_tokens += response.usage.input_tokens + response.usage.output_tokens
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"Claude response received ({elapsed_ms}ms, {tokens_used} tokens)")
+            logger.info(f"Claude response received ({elapsed_ms}ms, {total_tokens} tokens, {iteration} tool iterations)")
 
-            return response_text, tokens_used, None
+            return response_text, total_tokens, None
 
         except APIConnectionError as e:
             error_msg = f"Connection error: {str(e)}"
@@ -107,6 +165,23 @@ class ClaudeClient:
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(f"Unexpected error calling Claude: {e}")
             return None, None, error_msg
+
+    def _execute_tool(self, tool_name: str, tool_input: Dict) -> str:
+        """
+        Execute a tool call
+
+        Args:
+            tool_name: Name of the tool to execute
+            tool_input: Input parameters for the tool
+
+        Returns:
+            Tool result as string
+        """
+        for tool in self.tools:
+            if hasattr(tool, 'execute_tool'):
+                return tool.execute_tool(tool_name, tool_input)
+
+        return f"Error: Tool '{tool_name}' not found"
 
     def validate_api_key(self) -> bool:
         """

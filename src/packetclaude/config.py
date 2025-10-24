@@ -6,7 +6,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict
 from dotenv import load_dotenv
-
+from io import StringIO
 
 class Config:
     """Configuration manager for PacketClaude"""
@@ -18,6 +18,11 @@ class Config:
         Args:
             config_path: Path to config.yaml file. If None, uses default location.
         """
+
+        with open('.env', 'r') as f:
+            env_content = f.read()
+        load_dotenv(stream=StringIO(env_content))
+
         # Load environment variables
         load_dotenv()
 
@@ -95,6 +100,21 @@ class Config:
         return self.get('direwolf.timeout', 30)
 
     @property
+    def telnet_enabled(self) -> bool:
+        """Check if telnet server is enabled"""
+        return self.get('telnet.enabled', False)
+
+    @property
+    def telnet_host(self) -> str:
+        """Get telnet server host"""
+        return self.get('telnet.host', 'localhost')
+
+    @property
+    def telnet_port(self) -> int:
+        """Get telnet server port"""
+        return self.get('telnet.port', 8023)
+
+    @property
     def radio_enabled(self) -> bool:
         """Check if radio control is enabled"""
         return self.get('radio.enabled', True)
@@ -137,6 +157,21 @@ class Config:
             "Keep responses concise and clear as they will be transmitted over radio."
         )
         return self.get('claude.system_prompt', default_prompt)
+
+    @property
+    def search_enabled(self) -> bool:
+        """Check if web search is enabled"""
+        return self.get('search.enabled', False)
+
+    @property
+    def search_max_results(self) -> int:
+        """Get maximum search results"""
+        return self.get('search.max_results', 5)
+
+    @property
+    def pota_enabled(self) -> bool:
+        """Check if POTA spots tool is enabled"""
+        return self.get('pota.enabled', False)
 
     @property
     def anthropic_api_key(self) -> str:

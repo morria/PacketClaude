@@ -15,8 +15,8 @@ if [ ! -f "config/config.yaml" ]; then
     exit 1
 fi
 
-# Check for .env file
-if [ ! -f ".env" ]; then
+# Check for .env file (supports regular files and named pipes from 1Password)
+if [ ! -e ".env" ]; then
     echo "Error: .env file not found"
     echo "Please copy .env.example to .env and add your Anthropic API key"
     exit 1
