@@ -61,6 +61,8 @@ Try these commands:
 help
 what is amateur radio?
 show me pota spots on 20m
+who else is connected?
+show me my session info
 status
 quit
 ```
@@ -71,6 +73,7 @@ You now have PacketClaude running with:
 - ✅ Claude AI integration
 - ✅ Web search capability
 - ✅ POTA spots tool
+- ✅ BBS session management (ask Claude for help, status, etc.)
 - ✅ Automatic callsign detection from telnet login
 - ✅ No radio hardware needed
 
@@ -119,6 +122,7 @@ export ANTHROPIC_API_KEY=your-key-here
 
 - [Running Modes](docs/RUNNING_MODES.md) - Full, telnet-only, KISS-only
 - [Telnet Login](docs/TELNET_LOGIN.md) - Automatic callsign detection
+- [BBS Session Tool](docs/BBS_SESSION_TOOL.md) - Session management via Claude
 - [POTA Tool](docs/POTA_TOOL.md) - Parks on the Air integration
 - [Search Feature](docs/SEARCH_FEATURE.md) - Web search capability
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues

@@ -190,6 +190,26 @@ class Config:
         return key
 
     @property
+    def qrz_api_key(self) -> str:
+        """Get QRZ.com API key from environment"""
+        return os.getenv('QRZ_API_KEY', '')
+
+    @property
+    def qrz_username(self) -> str:
+        """Get QRZ.com username from environment"""
+        return os.getenv('QRZ_USERNAME', '')
+
+    @property
+    def qrz_password(self) -> str:
+        """Get QRZ.com password from environment"""
+        return os.getenv('QRZ_PASSWORD', '')
+
+    @property
+    def qrz_enabled(self) -> bool:
+        """Check if QRZ lookup is enabled (has API key or credentials)"""
+        return bool(self.qrz_api_key or (self.qrz_username and self.qrz_password))
+
+    @property
     def rate_limit_enabled(self) -> bool:
         """Check if rate limiting is enabled"""
         return self.get('rate_limits.enabled', True)
@@ -220,6 +240,16 @@ class Config:
     def log_format(self) -> str:
         """Get log format"""
         return self.get('logging.format', 'json')
+
+    @property
+    def log_level(self) -> str:
+        """Get log level"""
+        # Check environment variable first, then config, then default
+        import os
+        env_level = os.getenv('LOG_LEVEL')
+        if env_level:
+            return env_level.upper()
+        return self.get('logging.level', 'INFO').upper()
 
     @property
     def database_path(self) -> Path:

@@ -23,6 +23,7 @@ SB = b'\xfa'  # Subnegotiation Begin
 SE = b'\xf0'  # Subnegotiation End
 
 # Telnet options
+TELOPT_ENVIRON = b'\x24'  # RFC 1408 - Old Environment Option
 TELOPT_NEW_ENVIRON = b'\x27'  # RFC 1572 - New Environment Option
 
 
@@ -194,11 +195,16 @@ class TelnetServer:
                 # Create connection object
                 conn = TelnetConnection(client_socket, address)
 
-                # Request environment variables from client (RFC 1572)
-                # This asks the client to send USER, LOGNAME, etc.
+                # Request environment variables from client
+                # Try both old ENVIRON (RFC 1408) and NEW-ENVIRON (RFC 1572)
+                # macOS telnet uses the older ENVIRON option
                 try:
-                    # IAC DO NEW-ENVIRON - ask client to send environment
+                    logger.debug(f"Sending IAC DO ENVIRON and NEW-ENVIRON to {address}")
+                    # Request old ENVIRON first (more widely supported)
+                    client_socket.sendall(IAC + DO + TELOPT_ENVIRON)
+                    # Also request NEW-ENVIRON
                     client_socket.sendall(IAC + DO + TELOPT_NEW_ENVIRON)
+                    logger.debug(f"Sent telnet environment requests to {address}")
                 except Exception as e:
                     logger.warning(f"Could not request telnet environment: {e}")
 
@@ -238,6 +244,8 @@ class TelnetServer:
         if IAC not in data:
             return data
 
+        logger.debug(f"Found IAC in data from {conn._remote_address}, parsing telnet protocol")
+
         result = b""
         i = 0
         while i < len(data):
@@ -252,9 +260,11 @@ class TelnetServer:
                         # Find SE (end of subnegotiation)
                         se_pos = data.find(SE, i + 3)
                         if se_pos != -1:
-                            if option == TELOPT_NEW_ENVIRON:
-                                # Parse environment variables
+                            if option in (TELOPT_ENVIRON, TELOPT_NEW_ENVIRON):
+                                # Parse environment variables (both old and new formats)
                                 env_data = data[i+3:se_pos]
+                                option_name = "NEW-ENVIRON" if option == TELOPT_NEW_ENVIRON else "ENVIRON"
+                                logger.debug(f"Found {option_name} subnegotiation from {conn._remote_address}")
                                 self._parse_environ(conn, env_data)
                             i = se_pos + 1
                             continue

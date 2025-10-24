@@ -183,9 +183,13 @@ class ClaudeClient:
         Returns:
             Tool result as string
         """
+        # Try each tool until we find one that handles this tool_name
         for tool in self.tools:
             if hasattr(tool, 'execute_tool'):
-                return tool.execute_tool(tool_name, tool_input)
+                result = tool.execute_tool(tool_name, tool_input)
+                # Check if this tool handled it (not an "Unknown tool" error)
+                if '"error"' not in result or f'Unknown tool: {tool_name}' not in result:
+                    return result
 
         return f"Error: Tool '{tool_name}' not found"
 

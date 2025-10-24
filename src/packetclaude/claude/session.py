@@ -3,7 +3,7 @@ Session management for per-callsign Claude conversations
 """
 import logging
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from collections import deque
 
 
@@ -29,6 +29,8 @@ class ConversationSession:
         self.created_at = time.time()
         self.last_activity = time.time()
         self.query_count = 0
+        self.authenticated = False
+        self.operator_info: Optional[Dict] = None
 
     def add_message(self, role: str, content: str):
         """
@@ -59,6 +61,17 @@ class ConversationSession:
         """Clear conversation history"""
         self.messages.clear()
         logger.info(f"Cleared conversation history for {self.callsign}")
+
+    def authenticate(self, operator_info: Dict[str, Any]):
+        """
+        Mark session as authenticated and store operator info
+
+        Args:
+            operator_info: Operator information from QRZ lookup
+        """
+        self.authenticated = True
+        self.operator_info = operator_info
+        logger.info(f"Session authenticated for {self.callsign}: {operator_info.get('fullname', 'Unknown')}")
 
     def get_age(self) -> float:
         """

@@ -23,6 +23,8 @@ from .auth.rate_limiter import RateLimiter
 from .logging.activity_logger import setup_logging, ActivityLogger
 from .tools.web_search import WebSearchTool
 from .tools.pota_spots import POTASpotsTool
+from .tools.bbs_session import BBSSessionTool
+from .auth.qrz_lookup import QRZLookup
 
 
 logger = logging.getLogger(__name__)
@@ -69,7 +71,7 @@ class PacketClaude:
         # Setup logging
         setup_logging(
             self.config.log_dir,
-            log_level="INFO",
+            log_level=self.config.log_level,
             log_format=self.config.log_format,
             console_output=True
         )
@@ -92,6 +94,7 @@ class PacketClaude:
         self.claude_client: Optional[ClaudeClient] = None
         self.session_manager: Optional[SessionManager] = None
         self.rate_limiter: Optional[RateLimiter] = None
+        self.qrz_lookup: Optional[QRZLookup] = None
 
         # Running flag
         self.running = False
@@ -240,6 +243,16 @@ class PacketClaude:
             )
             tools.append(pota_tool)
 
+        # Initialize session manager first (needed by BBS tool)
+        self.session_manager = SessionManager(
+            max_messages_per_session=self.config.max_context_messages
+        )
+
+        # Initialize BBS session tool (requires session manager and connection references)
+        logger.info("BBS session tool enabled")
+        bbs_tool = BBSSessionTool(packetclaude_app=self)
+        tools.append(bbs_tool)
+
         self.claude_client = ClaudeClient(
             api_key=self.config.anthropic_api_key,
             model=self.config.claude_model,
@@ -249,11 +262,6 @@ class PacketClaude:
             tools=tools
         )
 
-        # Initialize session manager
-        self.session_manager = SessionManager(
-            max_messages_per_session=self.config.max_context_messages
-        )
-
         # Initialize rate limiter
         self.rate_limiter = RateLimiter(
             database=self.database,
@@ -261,6 +269,18 @@ class PacketClaude:
             queries_per_day=self.config.rate_limit_per_day,
             enabled=self.config.rate_limit_enabled
         )
+
+        # Initialize QRZ lookup
+        self.qrz_lookup = QRZLookup(
+            api_key=self.config.qrz_api_key,
+            username=self.config.qrz_username,
+            password=self.config.qrz_password,
+            enabled=self.config.qrz_enabled
+        )
+        if self.config.qrz_enabled:
+            logger.info("QRZ callsign lookup enabled")
+        else:
+            logger.warning("QRZ lookup disabled - no credentials provided")
 
         logger.info("All components initialized successfully")
         self.running = True
@@ -353,9 +373,81 @@ class PacketClaude:
 
         self.activity_logger.log_connection(connection.remote_address, connection_id)
 
-        # Send welcome message
-        welcome = self.config.welcome_message + "\n"
+        # Check if this is a telnet connection without a callsign (IP:port format)
+        # or if the session isn't authenticated yet
+        session = self.session_manager.get_session(connection.remote_address)
+
+        if not session.authenticated:
+            # Check if connection ID looks like a callsign (not IP:port)
+            import re
+            if re.match(r'^\d+\.\d+\.\d+\.\d+:\d+$', connection.remote_address):
+                # IP:port format - need callsign
+                prompt = (
+                    "Welcome to PacketClaude!\n\n"
+                    "Please enter your amateur radio callsign to continue: "
+                )
+                self._send_to_station(connection, prompt)
+            else:
+                # Has callsign - authenticate it
+                self._authenticate_callsign(connection, connection.remote_address)
+        else:
+            # Already authenticated, send welcome
+            welcome = self.config.welcome_message + "\n"
+            self._send_to_station(connection, welcome)
+
+    def _authenticate_callsign(self, connection, callsign: str):
+        """
+        Authenticate a callsign via QRZ lookup
+
+        Args:
+            connection: The connection
+            callsign: Callsign to authenticate
+        """
+        logger.info(f"Authenticating callsign: {callsign}")
+
+        # Look up on QRZ
+        operator_info = self.qrz_lookup.lookup(callsign)
+
+        if operator_info is None:
+            # QRZ lookup failed - just accept the callsign anyway
+            logger.warning(f"QRZ lookup failed for {callsign}, accepting callsign anyway")
+            operator_info = {
+                'call': callsign.upper(),
+                'fullname': callsign.upper()
+            }
+
+        # Get session and authenticate
+        old_address = connection.remote_address
+        session = self.session_manager.get_session(old_address)
+        session.authenticate(operator_info)
+
+        # For telnet connections, update the callsign
+        if isinstance(connection, TelnetConnection) and not connection.callsign:
+            connection.set_callsign(callsign)
+            # Update session manager key
+            new_address = connection.remote_address  # Now returns callsign
+            if old_address != new_address and old_address in self.session_manager.sessions:
+                self.session_manager.sessions[new_address] = self.session_manager.sessions[old_address]
+                del self.session_manager.sessions[old_address]
+
+        # Send welcome with operator info
+        fullname = operator_info.get('fullname', callsign)
+        location = operator_info.get('state', operator_info.get('country', ''))
+        license_class = operator_info.get('class', '')
+
+        welcome_parts = [f"\nWelcome {fullname} ({callsign})!"]
+        if location:
+            welcome_parts.append(f"Location: {location}")
+        if license_class:
+            welcome_parts.append(f"License: {license_class}")
+        welcome_parts.append("")
+        welcome_parts.append(self.config.welcome_message)
+        welcome_parts.append("")
+
+        welcome = "\n".join(welcome_parts)
         self._send_to_station(connection, welcome)
+
+        logger.info(f"Successfully authenticated {callsign} - {fullname}")
 
     def _on_disconnect(self, connection: AX25Connection):
         """Handle disconnection"""
@@ -391,6 +483,24 @@ class PacketClaude:
             message = data.decode('utf-8', errors='ignore').strip()
 
             if not message:
+                return
+
+            # Check if session is authenticated
+            session = self.session_manager.get_session(connection.remote_address)
+
+            if not session.authenticated:
+                # Treat message as callsign attempt
+                callsign = message.upper().strip()
+
+                # Basic format validation
+                import re
+                if not re.match(r'^[A-Z0-9]{1,2}[0-9][A-Z0-9]{1,4}(-[0-9]{1,2})?$', callsign):
+                    self._send_to_station(connection,
+                        "\nInvalid callsign format. Please enter a valid amateur radio callsign: ")
+                    return
+
+                # Authenticate the callsign
+                self._authenticate_callsign(connection, callsign)
                 return
 
             logger.info(f"Message from {connection.remote_address}: {message}")
@@ -436,13 +546,18 @@ class PacketClaude:
             # Get conversation history
             history = self.session_manager.get_history(connection.remote_address)
 
+            # Add connection context to message for tool use
+            # This helps Claude know which connection is making the request
+            connection_type = "telnet" if isinstance(connection, TelnetConnection) else "ax25"
+            message_with_context = f"[Connection: {connection.remote_address} via {connection_type}] {message}"
+
             # Send typing indicator
             self._send_to_station(connection, "...\n")
 
             # Query Claude
             start_time = time.time()
             response_text, tokens_used, error = self.claude_client.send_message(
-                message,
+                message_with_context,
                 history
             )
             response_time_ms = int((time.time() - start_time) * 1000)

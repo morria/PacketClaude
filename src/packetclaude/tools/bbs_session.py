@@ -77,6 +77,25 @@ This tool provides complete BBS system control and information.
             }
         }
 
+    def execute_tool(self, tool_name: str, tool_input: Dict) -> str:
+        """
+        Execute tool call from Claude
+
+        Args:
+            tool_name: Name of the tool to execute
+            tool_input: Input parameters for the tool
+
+        Returns:
+            Tool result as string
+        """
+        if tool_name == "bbs_session":
+            action = tool_input.get("action")
+            connection_id = tool_input.get("connection_id")
+            callsign = tool_input.get("callsign")
+            return self.execute(action=action, connection_id=connection_id, callsign=callsign)
+        else:
+            return json.dumps({"error": f"Unknown tool: {tool_name}"})
+
     def execute(self, action: str, connection_id: Optional[str] = None,
                 callsign: Optional[str] = None) -> str:
         """
