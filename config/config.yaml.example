@@ -1,0 +1,117 @@
+# PacketClaude Configuration
+
+station:
+  # Your amateur radio callsign with SSID
+  callsign: "N0CALL-10"
+
+  # Station description sent in welcome banner
+  description: "PacketClaude AI Gateway"
+
+  # Welcome message sent when user connects
+  welcome_message: |
+    Welcome to PacketClaude!
+    You are now connected to Claude AI via packet radio.
+    Simply type your questions and press Enter.
+    Type 'help' for commands, 'quit' or 'bye' to disconnect.
+
+# Direwolf software TNC configuration
+direwolf:
+  # Direwolf KISS TCP server
+  host: "localhost"
+  port: 8001
+
+  # Connection timeout in seconds
+  timeout: 30
+
+# Radio control via Hamlib
+radio:
+  # Enable/disable radio control
+  enabled: true
+
+  # Hamlib radio model
+  # For Yaesu FTX-1, use model number or name
+  model: "FTX-1"
+
+  # Serial port device
+  device: "/dev/ttyUSB0"
+
+  # Baud rate
+  baud: 4800
+
+  # PTT control
+  ptt_type: "RIG"  # or "SERIAL", "NONE"
+
+  # Retry attempts if radio control fails
+  retry_attempts: 3
+
+# Claude API configuration
+claude:
+  # Model to use
+  model: "claude-3-5-sonnet-20241022"
+
+  # Maximum tokens in response
+  max_tokens: 500
+
+  # Temperature (0.0-1.0, higher = more creative)
+  temperature: 0.7
+
+  # System prompt for packet radio context
+  system_prompt: |
+    You are Claude, an AI assistant accessible via amateur radio packet radio (AX.25).
+    Responses will be transmitted over VHF/UHF radio, so keep answers concise and clear.
+    The user is a licensed amateur radio operator. Be helpful, accurate, and brief.
+    Avoid very long responses as they consume significant airtime.
+    If a topic requires a long explanation, offer to break it into parts.
+
+# Rate limiting configuration
+rate_limits:
+  # Enable rate limiting
+  enabled: true
+
+  # Maximum queries per callsign per hour
+  queries_per_hour: 10
+
+  # Maximum queries per callsign per day
+  queries_per_day: 50
+
+  # Maximum response length in characters
+  # Responses longer than this will be truncated with continuation prompt
+  max_response_chars: 1024
+
+  # How long to track rate limits (in hours)
+  tracking_window: 24
+
+# Logging configuration
+logging:
+  # Log directory
+  log_dir: "logs"
+
+  # Log file rotation
+  rotate_size_mb: 10
+  rotate_count: 5
+
+  # Log format: json or text
+  format: "json"
+
+  # What to log
+  log_connections: true
+  log_queries: true
+  log_responses: true
+  log_errors: true
+
+# Database configuration
+database:
+  # SQLite database file
+  path: "data/sessions.db"
+
+  # Backup interval in hours (0 = disabled)
+  backup_interval: 24
+
+# Session management
+sessions:
+  # How long to keep session context after disconnect (seconds)
+  # 0 = clear immediately
+  timeout: 0
+
+  # Maximum messages to keep in context per session
+  max_context_messages: 20

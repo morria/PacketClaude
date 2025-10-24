@@ -1,0 +1,23 @@
+[Unit]
+Description=PacketClaude - AX.25 Packet Radio Gateway for Claude AI
+After=network.target direwolf.service
+Wants=direwolf.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/PacketClaude
+Environment="PATH=/home/pi/PacketClaude/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/pi/PacketClaude/venv/bin/python -m src.packetclaude.main
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

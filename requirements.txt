@@ -1,0 +1,23 @@
+# Core dependencies
+anthropic>=0.39.0
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+
+# AX.25 and packet radio
+# Note: We'll use socket-based KISS protocol implementation (custom)
+# pyham-ax25 is available but we'll implement lighter KISS client
+
+# Radio control
+# Note: Hamlib Python bindings typically installed via system package manager
+# On macOS: brew install hamlib
+# On Linux: apt-get install libhamlib-dev python3-libhamlib
+# We'll handle this gracefully if not available
+
+# Database
+# SQLite3 is included in Python standard library
+
+# Async support
+aiofiles>=23.2.1
+
+# Logging and utilities
+structlog>=24.1.0
