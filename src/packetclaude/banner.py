@@ -14,14 +14,13 @@ def get_banner(callsign: str = "", grid: str = "") -> str:
     Returns:
         ASCII art banner string
     """
-    # Claude-inspired ASCII art
+    # Packet Claude ASCII art banner
     banner = r"""
-   _____ _                 _
-  / ____| |               | |
- | |    | | __ _ _   _  __| | ___
- | |    | |/ _` | | | |/ _` |/ _ \
- | |____| | (_| | |_| | (_| |  __/
-  \_____|_|\__,_|\__,_|\__,_|\___|
+ ____   _    ____ _  _______ _____    ____ _    _    _   _ ____  _____
+|  _ \ / \  / ___| |/ / ____|_   _|  / ___| |  / \  | | | |  _ \| ____|
+| |_) / _ \| |   | ' /|  _|   | |   | |   | | / _ \ | | | | | | |  _|
+|  __/ ___ \ |___| . \| |___  | |   | |___| |/ ___ \| |_| | |_| | |___
+|_| /_/   \_\____|_|\_\_____| |_|    \____|_/_/   \_\\___/|____/|_____|
 """
 
     # Add station info if provided
@@ -33,9 +32,9 @@ def get_banner(callsign: str = "", grid: str = "") -> str:
             station_info.append(grid)
 
         info_line = " • ".join(station_info)
-        banner += f"\n  PacketClaude • {info_line}\n"
+        banner += f"\n  Packet Claude • {info_line}\n"
     else:
-        banner += "\n  PacketClaude\n"
+        banner += "\n  Packet Claude\n"
 
     banner += "  AI-Powered Amateur Radio BBS\n"
 
@@ -54,11 +53,11 @@ def get_compact_banner(callsign: str = "", grid: str = "") -> str:
         Compact ASCII banner
     """
     banner = r"""
-  _____ _                 _
- / ____| | __ _ _   _  __| | ___
-| |    | |/ _` | | | |/ _` |/ _ \
-| |____| | (_| | |_| | (_| |  __/
- \_____|_|\__,_|\__,_|\__,_|\___|
+ ____   _    ____ _  _______ _____    ____ _    _    _   _ ____  _____
+|  _ \ / \  / ___| |/ / ____|_   _|  / ___| |  / \  | | | |  _ \| ____|
+| |_) / _ \| |   | ' /|  _|   | |   | |   | | / _ \ | | | | | | |  _|
+|  __/ ___ \ |___| . \| |___  | |   | |___| |/ ___ \| |_| | |_| | |___
+|_| /_/   \_\____|_|\_\_____| |_|    \____|_/_/   \_\\___/|____/|_____|
 """
 
     if callsign or grid:
@@ -68,8 +67,8 @@ def get_compact_banner(callsign: str = "", grid: str = "") -> str:
         if grid:
             station_info.append(grid)
         info_line = " • ".join(station_info)
-        banner += f"\n PacketClaude • {info_line}\n"
+        banner += f"\n Packet Claude • {info_line}\n"
     else:
-        banner += "\n PacketClaude\n"
+        banner += "\n Packet Claude\n"
 
     return banner

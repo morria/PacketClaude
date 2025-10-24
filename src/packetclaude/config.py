@@ -179,6 +179,11 @@ class Config:
         return self.get('pota.max_spots', 10)
 
     @property
+    def band_conditions_enabled(self) -> bool:
+        """Check if band conditions tool is enabled"""
+        return self.get('band_conditions.enabled', True)
+
+    @property
     def anthropic_api_key(self) -> str:
         """Get Anthropic API key from environment"""
         key = os.getenv('ANTHROPIC_API_KEY')

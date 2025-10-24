@@ -26,6 +26,7 @@ from .tools.pota_spots import POTASpotsTool
 from .tools.bbs_session import BBSSessionTool
 from .tools.qrz_tool import QRZTool
 from .tools.message_tool import MessageTool
+from .tools.band_conditions import BandConditionsTool
 from .auth.qrz_lookup import QRZLookup
 from .activity_feed import ActivityFeed
 from .banner import get_banner
@@ -249,6 +250,12 @@ class PacketClaude:
                 max_spots=self.config.pota_max_spots
             )
             tools.append(pota_tool)
+
+        # Initialize band conditions tool
+        if self.config.band_conditions_enabled:
+            logger.info("Band conditions tool enabled")
+            band_conditions_tool = BandConditionsTool(enabled=True)
+            tools.append(band_conditions_tool)
 
         # Initialize session manager first (needed by BBS tool)
         self.session_manager = SessionManager(
