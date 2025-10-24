@@ -90,8 +90,16 @@ class TelnetConnection:
     def close(self):
         """Close the connection"""
         try:
+            # Shutdown the socket first to signal EOF to client
+            try:
+                self.socket.shutdown(socket.SHUT_RDWR)
+            except Exception as se:
+                # Socket might already be closed, which is fine
+                logger.debug(f"Socket shutdown for {self.remote_address}: {se}")
+
             self.socket.close()
             self.state = ConnectionState.DISCONNECTED
+            logger.debug(f"Connection {self.remote_address} closed")
         except Exception as e:
             logger.error(f"Error closing connection: {e}")
 
@@ -194,6 +202,9 @@ class TelnetServer:
 
                 # Create connection object
                 conn = TelnetConnection(client_socket, address)
+
+                # Set socket timeout so recv() doesn't block forever
+                client_socket.settimeout(5.0)
 
                 # Request environment variables from client
                 # Try both old ENVIRON (RFC 1408) and NEW-ENVIRON (RFC 1572)
@@ -351,6 +362,7 @@ class TelnetServer:
 
                     if not data:
                         # Connection closed
+                        logger.debug(f"Connection closed by {conn.remote_address}")
                         break
 
                     # Parse telnet protocol data

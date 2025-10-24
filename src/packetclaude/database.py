@@ -99,6 +99,23 @@ class Database:
                 )
             """)
 
+            # Messages table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    from_callsign TEXT NOT NULL,
+                    to_callsign TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    is_read INTEGER DEFAULT 0,
+                    in_reply_to INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    read_at TIMESTAMP,
+                    deleted_at TIMESTAMP,
+                    FOREIGN KEY (in_reply_to) REFERENCES messages(id)
+                )
+            """)
+
             # Create indexes
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_connections_callsign
@@ -118,6 +135,21 @@ class Database:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_rate_limits_callsign
                 ON rate_limits(callsign)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_messages_to_callsign
+                ON messages(to_callsign)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_messages_from_callsign
+                ON messages(from_callsign)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_messages_created_at
+                ON messages(created_at)
             """)
 
             cursor.execute("""
@@ -461,3 +493,216 @@ class Database:
             cursor.execute("""
                 DELETE FROM errors WHERE timestamp < ?
             """, (cutoff,))
+
+    # Message methods
+
+    def send_message(self, from_callsign: str, to_callsign: str,
+                    subject: str, body: str, in_reply_to: Optional[int] = None) -> int:
+        """
+        Send a message to another user
+
+        Args:
+            from_callsign: Sender's callsign
+            to_callsign: Recipient's callsign
+            subject: Message subject
+            body: Message body
+            in_reply_to: Optional message ID this is replying to
+
+        Returns:
+            Message ID of the sent message
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO messages (from_callsign, to_callsign, subject, body, in_reply_to)
+                VALUES (?, ?, ?, ?, ?)
+            """, (from_callsign.upper(), to_callsign.upper(), subject, body, in_reply_to))
+            return cursor.lastrowid
+
+    def get_messages(self, callsign: str, unread_only: bool = False,
+                    include_deleted: bool = False) -> List[Dict]:
+        """
+        Get messages for a callsign (received messages)
+
+        Args:
+            callsign: Callsign to get messages for
+            unread_only: Only return unread messages
+            include_deleted: Include deleted messages
+
+        Returns:
+            List of message dictionaries
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = """
+                SELECT id, from_callsign, to_callsign, subject, body,
+                       is_read, in_reply_to, created_at, read_at, deleted_at
+                FROM messages
+                WHERE to_callsign = ?
+            """
+            params = [callsign.upper()]
+
+            if not include_deleted:
+                query += " AND deleted_at IS NULL"
+
+            if unread_only:
+                query += " AND is_read = 0"
+
+            query += " ORDER BY created_at DESC"
+
+            cursor.execute(query, params)
+
+            messages = []
+            for row in cursor.fetchall():
+                messages.append({
+                    'id': row['id'],
+                    'from': row['from_callsign'],
+                    'to': row['to_callsign'],
+                    'subject': row['subject'],
+                    'body': row['body'],
+                    'is_read': bool(row['is_read']),
+                    'in_reply_to': row['in_reply_to'],
+                    'created_at': row['created_at'],
+                    'read_at': row['read_at'],
+                    'deleted_at': row['deleted_at']
+                })
+
+            return messages
+
+    def get_sent_messages(self, callsign: str) -> List[Dict]:
+        """
+        Get messages sent by a callsign
+
+        Args:
+            callsign: Callsign to get sent messages for
+
+        Returns:
+            List of message dictionaries
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = """
+                SELECT id, from_callsign, to_callsign, subject, body,
+                       is_read, in_reply_to, created_at, read_at, deleted_at
+                FROM messages
+                WHERE from_callsign = ? AND deleted_at IS NULL
+                ORDER BY created_at DESC
+            """
+
+            cursor.execute(query, [callsign.upper()])
+
+            messages = []
+            for row in cursor.fetchall():
+                messages.append({
+                    'id': row['id'],
+                    'from': row['from_callsign'],
+                    'to': row['to_callsign'],
+                    'subject': row['subject'],
+                    'body': row['body'],
+                    'is_read': bool(row['is_read']),
+                    'in_reply_to': row['in_reply_to'],
+                    'created_at': row['created_at'],
+                    'read_at': row['read_at'],
+                    'deleted_at': row['deleted_at']
+                })
+
+            return messages
+
+    def get_message(self, message_id: int, callsign: str) -> Optional[Dict]:
+        """
+        Get a specific message
+
+        Args:
+            message_id: Message ID
+            callsign: Callsign (must be sender or recipient)
+
+        Returns:
+            Message dictionary or None if not found or not authorized
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, from_callsign, to_callsign, subject, body,
+                       is_read, in_reply_to, created_at, read_at, deleted_at
+                FROM messages
+                WHERE id = ? AND (from_callsign = ? OR to_callsign = ?)
+            """, (message_id, callsign.upper(), callsign.upper()))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                'id': row['id'],
+                'from': row['from_callsign'],
+                'to': row['to_callsign'],
+                'subject': row['subject'],
+                'body': row['body'],
+                'is_read': bool(row['is_read']),
+                'in_reply_to': row['in_reply_to'],
+                'created_at': row['created_at'],
+                'read_at': row['read_at'],
+                'deleted_at': row['deleted_at']
+            }
+
+    def mark_message_read(self, message_id: int, callsign: str) -> bool:
+        """
+        Mark a message as read
+
+        Args:
+            message_id: Message ID
+            callsign: Callsign (must be recipient)
+
+        Returns:
+            True if message was marked read, False otherwise
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE messages
+                SET is_read = 1, read_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND to_callsign = ? AND is_read = 0
+            """, (message_id, callsign.upper()))
+            return cursor.rowcount > 0
+
+    def delete_message(self, message_id: int, callsign: str) -> bool:
+        """
+        Delete a message (soft delete)
+
+        Args:
+            message_id: Message ID
+            callsign: Callsign (must be recipient)
+
+        Returns:
+            True if message was deleted, False otherwise
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE messages
+                SET deleted_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND to_callsign = ? AND deleted_at IS NULL
+            """, (message_id, callsign.upper()))
+            return cursor.rowcount > 0
+
+    def get_unread_count(self, callsign: str) -> int:
+        """
+        Get count of unread messages for a callsign
+
+        Args:
+            callsign: Callsign
+
+        Returns:
+            Number of unread messages
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM messages
+                WHERE to_callsign = ? AND is_read = 0 AND deleted_at IS NULL
+            """, (callsign.upper(),))
+            row = cursor.fetchone()
+            return row['count'] if row else 0

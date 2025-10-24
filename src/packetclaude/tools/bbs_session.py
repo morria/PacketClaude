@@ -302,7 +302,12 @@ This tool provides complete BBS system control and information.
                     "All conversations are logged for quality assurance",
                     "Rate limits apply to prevent abuse",
                     "Your callsign is used to maintain conversation context"
-                ]
+                ],
+                "about": {
+                    "author": "W2ASM",
+                    "source": "https://github.com/morria/PacketClaude",
+                    "description": "Open-source AI-powered BBS for amateur radio packet communication"
+                }
             }
         }
         return json.dumps(help_text, indent=2)

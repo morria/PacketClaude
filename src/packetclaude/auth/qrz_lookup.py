@@ -75,13 +75,25 @@ class QRZLookup:
             # Parse XML response
             root = ET.fromstring(response.content)
 
+            # QRZ uses XML namespace, need to handle it
+            # Define namespace for XPath queries
+            ns = {'qrz': 'http://xmldata.qrz.com'}
+
             # Check for session key
-            session = root.find('.//Session')
+            session = root.find('.//qrz:Session', ns)
+            if session is None:
+                # Try without namespace (fallback for responses without xmlns)
+                session = root.find('.//Session')
+
             if session is None:
                 logger.error("No Session element in QRZ response")
                 return False
 
-            key = session.find('Key')
+            # Try with namespace first, then without
+            key = session.find('qrz:Key', ns)
+            if key is None:
+                key = session.find('Key')
+
             if key is not None and key.text:
                 self.session_key = key.text
                 # Session is valid for 24 hours
@@ -89,8 +101,11 @@ class QRZLookup:
                 logger.info("QRZ session key obtained successfully")
                 return True
 
-            # Check for error
-            error = session.find('Error')
+            # Check for error (try with namespace, then without)
+            error = session.find('qrz:Error', ns)
+            if error is None:
+                error = session.find('Error')
+
             if error is not None and error.text:
                 logger.error(f"QRZ authentication error: {error.text}")
                 return False
@@ -167,11 +182,20 @@ class QRZLookup:
             # Parse XML response
             root = ET.fromstring(response.content)
 
-            # Check for callsign data
-            callsign_elem = root.find('.//Callsign')
+            # QRZ uses XML namespace
+            ns = {'qrz': 'http://xmldata.qrz.com'}
+
+            # Check for callsign data (try with namespace first, then without)
+            callsign_elem = root.find('.//qrz:Callsign', ns)
             if callsign_elem is None:
-                # Check for error
-                error = root.find('.//Session/Error')
+                callsign_elem = root.find('.//Callsign')
+
+            if callsign_elem is None:
+                # Check for error (try with namespace, then without)
+                error = root.find('.//qrz:Session/qrz:Error', ns)
+                if error is None:
+                    error = root.find('.//Session/Error')
+
                 if error is not None and error.text:
                     logger.warning(f"QRZ lookup error for {callsign}: {error.text}")
                 else:
@@ -185,7 +209,10 @@ class QRZLookup:
             for field in ['call', 'fname', 'name', 'addr1', 'addr2', 'state',
                          'zip', 'country', 'lat', 'lon', 'grid', 'email',
                          'class', 'expires', 'aliases', 'email']:
-                elem = callsign_elem.find(field)
+                # Try with namespace first, then without
+                elem = callsign_elem.find(f'qrz:{field}', ns)
+                if elem is None:
+                    elem = callsign_elem.find(field)
                 if elem is not None and elem.text:
                     info[field] = elem.text
 

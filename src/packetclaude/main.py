@@ -25,7 +25,10 @@ from .tools.web_search import WebSearchTool
 from .tools.pota_spots import POTASpotsTool
 from .tools.bbs_session import BBSSessionTool
 from .tools.qrz_tool import QRZTool
+from .tools.message_tool import MessageTool
 from .auth.qrz_lookup import QRZLookup
+from .activity_feed import ActivityFeed
+from .banner import get_banner
 
 
 logger = logging.getLogger(__name__)
@@ -86,6 +89,9 @@ class PacketClaude:
 
         # Initialize activity logger
         self.activity_logger = ActivityLogger(logger, self.database)
+
+        # Initialize activity feed
+        self.activity_feed = ActivityFeed(max_items=50)
 
         # Initialize components
         self.kiss_client: Optional[KISSClient] = None
@@ -273,6 +279,14 @@ class PacketClaude:
         else:
             logger.warning("QRZ lookup disabled - no credentials provided")
 
+        # Initialize message tool (always enabled)
+        logger.info("Message tool enabled")
+        message_tool = MessageTool(
+            database=self.database,
+            enabled=True
+        )
+        tools.append(message_tool)
+
         self.claude_client = ClaudeClient(
             api_key=self.config.anthropic_api_key,
             model=self.config.claude_model,
@@ -438,12 +452,31 @@ class PacketClaude:
                 self.session_manager.sessions[new_address] = self.session_manager.sessions[old_address]
                 del self.session_manager.sessions[old_address]
 
-        # Send welcome with operator info
+            # Update telnet server connections dict
+            if old_address != new_address and old_address in self.telnet_server.connections:
+                logger.debug(f"Updating telnet connections dict: {old_address} -> {new_address}")
+                self.telnet_server.connections[new_address] = self.telnet_server.connections[old_address]
+                del self.telnet_server.connections[old_address]
+
+        # Send banner with station info
+        grid = operator_info.get('grid', '')
+        station_callsign = self.config.station_callsign
+        banner = get_banner(station_callsign, grid)
+        self._send_to_station(connection, "\n" + banner + "\n")
+
+        # Add activity feed
+        activity_summary = self.activity_feed.get_recent_summary(max_items=2, max_age_minutes=30)
+        self._send_to_station(connection, activity_summary + "\n\n")
+
+        # Track connection activity
+        self.activity_feed.add_activity(callsign, 'connect')
+
+        # Send personalized welcome with operator info
         fullname = operator_info.get('fullname', callsign)
         location = operator_info.get('state', operator_info.get('country', ''))
         license_class = operator_info.get('class', '')
 
-        welcome_parts = [f"\nWelcome {fullname} ({callsign})!" if fullname else f"\nWelcome {callsign}!"]
+        welcome_parts = [f"Welcome {fullname} ({callsign})!" if fullname else f"Welcome {callsign}!"]
         if location:
             welcome_parts.append(f"Location: {location}")
         if license_class:
@@ -453,7 +486,7 @@ class PacketClaude:
         welcome_parts.append("")
 
         welcome = "\n".join(welcome_parts)
-        self._send_to_station(connection, welcome)
+        self._send_to_station(connection, welcome + "\n> ")
 
         logger.info(f"Successfully authenticated {callsign} - {fullname}")
 
@@ -517,8 +550,11 @@ class PacketClaude:
             if message.lower() in ['help', '?']:
                 self._send_help(connection)
                 return
-            elif message.lower() in ['quit', 'bye', 'exit', '73']:
+            elif message.lower() in ['quit', 'bye', 'exit', '73', '/exit', 'close', 'logout', 'disconnect']:
+                logger.info(f"Exit command from {connection.remote_address}")
                 self._send_to_station(connection, "73! Goodbye.\n")
+                # Give time for message to be sent before disconnecting
+                time.sleep(0.5)
                 # Disconnect based on connection type
                 if isinstance(connection, TelnetConnection):
                     self.telnet_server.disconnect(connection)
@@ -530,7 +566,7 @@ class PacketClaude:
                 return
             elif message.lower() in ['clear', 'reset']:
                 self.session_manager.clear_session(connection.remote_address)
-                self._send_to_station(connection, "Conversation history cleared.\n")
+                self._send_to_station(connection, "Conversation history cleared.\n> ")
                 return
 
             # Check rate limits
@@ -540,7 +576,7 @@ class PacketClaude:
                 self._send_to_station(
                     connection,
                     f"Rate limit exceeded: {reason}\n"
-                    "Please try again later. Type 'status' for details.\n"
+                    "Please try again later. Type 'status' for details.\n> "
                 )
                 return
 
@@ -588,13 +624,16 @@ class PacketClaude:
 
                 self._send_to_station(
                     connection,
-                    f"Error: {error}\nPlease try again.\n"
+                    f"Error: {error}\nPlease try again.\n> "
                 )
                 return
 
             # Update session history
             self.session_manager.add_user_message(connection.remote_address, message)
             self.session_manager.add_assistant_message(connection.remote_address, response_text)
+
+            # Track activity for feed
+            self.activity_feed.add_activity(connection.remote_address, 'query')
 
             # Log response
             self.activity_logger.log_response(
@@ -621,8 +660,8 @@ class PacketClaude:
                 response_text = response_text[:max_chars]
                 response_text += f"\n\n[Response truncated at {max_chars} chars]"
 
-            # Send response
-            self._send_to_station(connection, response_text + "\n")
+            # Send response with prompt
+            self._send_to_station(connection, response_text + "\n> ")
 
         except Exception as e:
             logger.error(f"Error handling data: {e}", exc_info=True)
@@ -632,7 +671,7 @@ class PacketClaude:
                 connection.remote_address,
                 e
             )
-            self._send_to_station(connection, "Internal error. Please try again.\n")
+            self._send_to_station(connection, "Internal error. Please try again.\n> ")
 
     def _send_to_station(self, connection, message: str):
         """Send message to connected station"""
@@ -659,11 +698,15 @@ PacketClaude Help:
 - 'help' or '?' - Show this help
 - 'status' - Show rate limit status
 - 'clear' - Clear conversation history
-- 'quit', 'bye', or '73' - Disconnect
+- Exit: 'quit', 'bye', 'exit', '73', '/exit', 'close', or Ctrl-C
+
+Commands:
+- Check mail, send messages, list sent messages
+- Look up callsigns, get POTA spots, search the web
 
 Your conversation context is preserved during the session.
 """
-        self._send_to_station(connection, help_text)
+        self._send_to_station(connection, help_text + "> ")
 
     def _send_status(self, connection: AX25Connection):
         """Send status information"""
@@ -673,7 +716,7 @@ Your conversation context is preserved during the session.
         session = self.session_manager.get_session(connection.remote_address)
         status_text += f"\n\nSession: {len(session.messages)} messages in history"
 
-        self._send_to_station(connection, status_text + "\n")
+        self._send_to_station(connection, status_text + "\n> ")
 
     @staticmethod
     def _parse_callsign(callsign_str: str) -> tuple:
