@@ -466,7 +466,17 @@ class PacketClaude:
 
         # Add activity feed
         activity_summary = self.activity_feed.get_recent_summary(max_items=2, max_age_minutes=30)
-        self._send_to_station(connection, activity_summary + "\n\n")
+        self._send_to_station(connection, activity_summary + "\n")
+
+        # Check for unread mail
+        unread_count = self.database.get_unread_count(callsign)
+        if unread_count > 0:
+            if unread_count == 1:
+                mail_notice = "You have 1 new message. Type 'check mail' to read it.\n"
+            else:
+                mail_notice = f"You have {unread_count} new messages. Type 'check mail' to read them.\n"
+            self._send_to_station(connection, mail_notice)
+        self._send_to_station(connection, "\n")
 
         # Track connection activity
         self.activity_feed.add_activity(callsign, 'connect')
