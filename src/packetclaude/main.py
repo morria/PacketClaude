@@ -443,7 +443,7 @@ class PacketClaude:
         location = operator_info.get('state', operator_info.get('country', ''))
         license_class = operator_info.get('class', '')
 
-        welcome_parts = [f"\nWelcome {fullname} ({callsign})!"]
+        welcome_parts = [f"\nWelcome {fullname} ({callsign})!" if fullname else f"\nWelcome {callsign}!"]
         if location:
             welcome_parts.append(f"Location: {location}")
         if license_class:

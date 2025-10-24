@@ -63,7 +63,12 @@ class ClaudeClient:
 
             # Add conversation history if provided
             if conversation_history:
-                messages.extend(conversation_history)
+                # Filter out any empty messages to avoid API errors
+                for msg in conversation_history:
+                    if msg.get("content") and str(msg["content"]).strip():
+                        messages.append(msg)
+                    else:
+                        logger.warning(f"Filtered out empty message from history: {msg}")
 
             # Add current message
             messages.append({

@@ -40,6 +40,11 @@ class ConversationSession:
             role: Message role ('user' or 'assistant')
             content: Message content
         """
+        # Skip empty messages to avoid API errors
+        if not content or not content.strip():
+            logger.warning(f"Attempted to add empty message for {self.callsign}, skipping")
+            return
+
         self.messages.append({
             "role": role,
             "content": content

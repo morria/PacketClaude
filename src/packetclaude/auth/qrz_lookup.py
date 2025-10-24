@@ -61,6 +61,10 @@ class QRZLookup:
                 'password': self.password,
             }
 
+            # Add API key if available (identifies XML Logbook subscription)
+            if self.api_key:
+                params['api'] = self.api_key
+
             logger.debug(f"Requesting QRZ session key for user: {self.username}")
             response = requests.get(self.base_url, params=params, timeout=10)
 
@@ -140,24 +144,19 @@ class QRZLookup:
             return None
 
         try:
-            # Build params based on authentication method
-            if self.api_key:
-                # Use API key directly (no session needed)
-                params = {
-                    'key': self.api_key,
-                    'callsign': callsign.upper(),
-                }
-                logger.debug(f"Looking up callsign on QRZ (API key): {callsign}")
-            else:
-                # Use username/password session
-                if not self._ensure_session():
-                    logger.error("Could not establish QRZ session")
-                    return None
-                params = {
-                    's': self.session_key,
-                    'callsign': callsign.upper(),
-                }
-                logger.debug(f"Looking up callsign on QRZ (session): {callsign}")
+            # Ensure we have a valid session key
+            if not self._ensure_session():
+                logger.error("Could not establish QRZ session")
+                return None
+
+            # Build lookup params with session key
+            params = {
+                's': self.session_key,
+                'callsign': callsign.upper(),
+            }
+
+            auth_method = "API key" if self.api_key else "username/password"
+            logger.debug(f"Looking up callsign on QRZ ({auth_method}): {callsign}")
 
             response = requests.get(self.base_url, params=params, timeout=10)
 

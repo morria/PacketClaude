@@ -22,35 +22,24 @@ You need a QRZ.com account to use the XML API:
 1. Go to https://www.qrz.com/
 2. Create a free account (or use existing account)
 
-**For API Key (Recommended)**:
+**For API Key (Optional - Enhanced Features)**:
 3. Subscribe to XML Logbook Data Access ($39.95/year as of 2025)
 4. Get your API key from https://www.qrz.com/docs/xml or your account settings
+5. Note: You still need username/password; the API key enables additional features
 
 **For Username/Password (Free)**:
-3. Just use your QRZ.com username and password
+3. Use your QRZ.com username and password (this works for basic lookups)
 
 ### 2. Add Credentials to .env
 
 Edit your `.env` file:
 
-**Option 1: API Key (Recommended)**
+**Required for all users:**
 ```bash
 # Anthropic API Key
 ANTHROPIC_API_KEY=your_api_key_here
 
-# QRZ.com API Key (requires XML Logbook subscription)
-QRZ_API_KEY=your_qrz_api_key
-
-# Logging
-LOG_LEVEL=INFO
-```
-
-**Option 2: Username/Password (Free)**
-```bash
-# Anthropic API Key
-ANTHROPIC_API_KEY=your_api_key_here
-
-# QRZ.com Username/Password
+# QRZ.com Username/Password (required)
 QRZ_USERNAME=your_qrz_username
 QRZ_PASSWORD=your_qrz_password
 
@@ -58,11 +47,13 @@ QRZ_PASSWORD=your_qrz_password
 LOG_LEVEL=INFO
 ```
 
-The API key method is preferred as it:
-- Doesn't require session management
-- Is faster (no initial authentication step)
-- More secure (dedicated API key vs main password)
-- Supports higher rate limits
+**Optional - If you have XML Logbook subscription:**
+```bash
+# Add this in addition to username/password
+QRZ_API_KEY=your_qrz_api_key
+```
+
+**Note**: The API key is optional and provides enhanced features if you have a paid XML Logbook subscription. Username and password are always required for authentication.
 
 ### 3. Restart PacketClaude
 

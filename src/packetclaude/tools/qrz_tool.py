@@ -26,12 +26,12 @@ class QRZTool:
         self.qrz_lookup = qrz_lookup
         self.enabled = enabled
 
-    def get_tool_description(self) -> Dict:
+    def get_tool_definition(self) -> Dict:
         """
-        Get tool description for Claude
+        Get Claude API tool definition for QRZ lookup
 
         Returns:
-            Tool description in Anthropic format
+            Tool definition dictionary
         """
         return {
             "name": "qrz_lookup",

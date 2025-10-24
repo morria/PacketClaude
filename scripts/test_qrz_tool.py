@@ -51,10 +51,10 @@ def main():
     print("Testing QRZ Tool for Claude\n")
     print("-" * 70)
 
-    # Test 1: Get tool description
-    print("\n1. Tool Description:")
+    # Test 1: Get tool definition
+    print("\n1. Tool Definition:")
     print("-" * 70)
-    tool_desc = qrz_tool.get_tool_description()
+    tool_desc = qrz_tool.get_tool_definition()
     print(f"Tool Name: {tool_desc['name']}")
     print(f"Description: {tool_desc['description']}")
     print(f"Required Parameters: {tool_desc['input_schema']['required']}")
