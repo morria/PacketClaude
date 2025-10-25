@@ -21,10 +21,10 @@ PacketClaude creates a packet radio BBS-style node that ham radio operators can 
 ## Requirements
 
 - Python 3.11 or higher
-- Direwolf software TNC (configured and running)
-- Yaesu FTX-1 radio with Hamlib support
 - Anthropic API key for Claude access
+- A VHF/UHF radio (and a license to operate it)
 - Sound card interface or hardware TNC for radio connection
+- Direwolf software TNC (configured and running)
 
 ## Installation
 
@@ -114,20 +114,16 @@ connect N0CALL-10
 
 ```
 PacketClaude/
-├── config/               # Configuration files
-├── src/packetclaude/    # Main source code
+├── config/             # Configuration files
+├── src/packetclaude/   # Main source code
 │   ├── ax25/           # AX.25 and KISS protocol handling
 │   ├── radio/          # Hamlib radio control
 │   ├── claude/         # Claude API integration
 │   ├── auth/           # Rate limiting
 │   └── logging/        # Activity logging
 ├── logs/               # Log files
-└── data/              # SQLite database
+└── data/               # SQLite database
 ```
-
-## License
-
-[Your chosen license]
 
 ## Contributing
 
