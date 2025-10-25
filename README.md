@@ -6,6 +6,8 @@ An AX.25 packet radio gateway that allows amateur radio operators to interact wi
 
 PacketClaude creates a packet radio BBS-style node that ham radio operators can connect to using AX.25 packet radio. Once connected, users can have conversations with Claude AI, with context preserved throughout their session.
 
+![Demo using Packet Commander](docs/demo.png)
+
 ## Features
 
 - **AX.25 Packet Radio Interface**: Connect via Direwolf software TNC
