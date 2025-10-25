@@ -185,7 +185,7 @@ class AX25Frame:
         Returns:
             AX25Frame object
         """
-        if len(data) < 16:  # Minimum: dest(7) + source(7) + control(1) + pid(1)
+        if len(data) < 15:  # Minimum: dest(7) + source(7) + control(1)
             raise ValueError("Frame too short")
 
         offset = 0

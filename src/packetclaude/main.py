@@ -698,7 +698,11 @@ class PacketClaude:
                 # Telnet connection - send directly
                 self.telnet_server.send_data(connection, message.encode('utf-8'))
             else:
-                # AX.25 connection - split message into chunks if needed (max ~256 bytes per packet)
+                # AX.25 connection - convert newlines to \r for packet radio terminals
+                # Packet radio terminals typically use \r for line endings
+                message = message.replace('\r\n', '\n').replace('\n', '\r')
+
+                # Split message into chunks if needed (max ~256 bytes per packet)
                 chunk_size = 200
                 for i in range(0, len(message), chunk_size):
                     chunk = message[i:i + chunk_size]
