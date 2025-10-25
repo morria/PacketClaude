@@ -35,9 +35,7 @@ Once enabled, there's nothing special you need to do! Just ask Claude questions 
 
 **Examples:**
 ```
-> What's the latest news about SpaceX?
 > Current weather in Seattle
-> Recent AI developments
 > Latest amateur radio regulations
 ```
 
