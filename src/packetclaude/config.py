@@ -151,11 +151,37 @@ class Config:
 
     @property
     def claude_system_prompt(self) -> str:
-        """Get Claude system prompt"""
+        """Get Claude system prompt from file"""
         default_prompt = (
             "You are Claude, an AI assistant accessible via amateur radio packet radio. "
             "Keep responses concise and clear as they will be transmitted over radio."
         )
+
+        # Get the system prompt file path from config
+        prompt_file = self.get('claude.system_prompt_file')
+
+        if prompt_file:
+            # Convert to Path object and resolve relative paths
+            prompt_path = Path(prompt_file)
+
+            # If it's a relative path, try to resolve it from the project root
+            if not prompt_path.is_absolute():
+                prompt_path = Path.cwd() / prompt_path
+
+            # Try to read the file
+            if prompt_path.exists():
+                try:
+                    with open(prompt_path, 'r') as f:
+                        return f.read().strip()
+                except Exception as e:
+                    # Log error and fall back to default
+                    print(f"Warning: Could not read system prompt file {prompt_path}: {e}")
+                    return default_prompt
+            else:
+                print(f"Warning: System prompt file not found: {prompt_path}")
+                return default_prompt
+
+        # Fallback to inline prompt if no file specified (for backwards compatibility)
         return self.get('claude.system_prompt', default_prompt)
 
     @property
@@ -182,6 +208,16 @@ class Config:
     def band_conditions_enabled(self) -> bool:
         """Check if band conditions tool is enabled"""
         return self.get('band_conditions.enabled', True)
+
+    @property
+    def dx_cluster_enabled(self) -> bool:
+        """Check if DX Cluster tool is enabled"""
+        return self.get('dx_cluster.enabled', True)
+
+    @property
+    def dx_cluster_max_spots(self) -> int:
+        """Get maximum DX Cluster spots to return"""
+        return self.get('dx_cluster.max_spots', 15)
 
     @property
     def anthropic_api_key(self) -> str:

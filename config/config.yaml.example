@@ -66,13 +66,8 @@ claude:
   # Temperature (0.0-1.0, higher = more creative)
   temperature: 0.7
 
-  # System prompt for packet radio context
-  system_prompt: |
-    You are Claude, an AI assistant accessible via amateur radio packet radio (AX.25).
-    Responses will be transmitted over VHF/UHF radio, so keep answers concise and clear.
-    The user is a licensed amateur radio operator. Be helpful, accurate, and brief.
-    Avoid very long responses as they consume significant airtime.
-    If a topic requires a long explanation, offer to break it into parts.
+  # System prompt file path (relative to config directory or absolute path)
+  system_prompt_file: "config/system_prompt.txt"
 
 # Web search configuration
 search:
@@ -89,6 +84,14 @@ pota:
 
   # Maximum number of spots to return (to conserve tokens)
   max_spots: 10
+
+# DX Cluster spots configuration
+dx_cluster:
+  # Enable/disable DX Cluster spots tool
+  enabled: true
+
+  # Maximum number of spots to return (to conserve tokens)
+  max_spots: 15
 
 # Rate limiting configuration
 rate_limits:

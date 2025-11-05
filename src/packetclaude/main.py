@@ -27,6 +27,7 @@ from .tools.bbs_session import BBSSessionTool
 from .tools.qrz_tool import QRZTool
 from .tools.message_tool import MessageTool
 from .tools.band_conditions import BandConditionsTool
+from .tools.dx_cluster import DXClusterTool
 from .auth.qrz_lookup import QRZLookup
 from .activity_feed import ActivityFeed
 from .banner import get_banner
@@ -256,6 +257,15 @@ class PacketClaude:
             logger.info("Band conditions tool enabled")
             band_conditions_tool = BandConditionsTool(enabled=True)
             tools.append(band_conditions_tool)
+
+        # Initialize DX Cluster tool
+        if self.config.dx_cluster_enabled:
+            logger.info("DX Cluster tool enabled")
+            dx_cluster_tool = DXClusterTool(
+                enabled=True,
+                max_spots=self.config.dx_cluster_max_spots
+            )
+            tools.append(dx_cluster_tool)
 
         # Initialize session manager first (needed by BBS tool)
         self.session_manager = SessionManager(
@@ -488,22 +498,11 @@ class PacketClaude:
         # Track connection activity
         self.activity_feed.add_activity(callsign, 'connect')
 
-        # Send personalized welcome with operator info
+        # Send quick welcome and get to prompt
         fullname = operator_info.get('fullname', callsign)
-        location = operator_info.get('state', operator_info.get('country', ''))
-        license_class = operator_info.get('class', '')
 
-        welcome_parts = [f"Welcome {fullname} ({callsign})!" if fullname else f"Welcome {callsign}!"]
-        if location:
-            welcome_parts.append(f"Location: {location}")
-        if license_class:
-            welcome_parts.append(f"License: {license_class}")
-        welcome_parts.append("")
-        welcome_parts.append(self.config.welcome_message)
-        welcome_parts.append("")
-
-        welcome = "\n".join(welcome_parts)
-        self._send_to_station(connection, welcome + "\n> ")
+        welcome_text = f"Welcome {fullname} ({callsign})!\nType 'help' for commands.\n"
+        self._send_to_station(connection, welcome_text + "> ")
 
         logger.info(f"Successfully authenticated {callsign} - {fullname}")
 
@@ -723,7 +722,8 @@ PacketClaude Help:
 
 Commands:
 - Check mail, send messages, list sent messages
-- Look up callsigns, get POTA spots, search the web
+- Look up callsigns, get POTA spots, DX cluster spots, search the web
+- Try: "dx cw 20m", "cluster 17m ssb", "pota spots"
 
 Your conversation context is preserved during the session.
 """

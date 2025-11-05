@@ -36,7 +36,7 @@ def get_banner(callsign: str = "", grid: str = "") -> str:
     else:
         banner += "\n  Packet Claude\n"
 
-    banner += "  AI-Powered Amateur Radio BBS\n"
+    banner += "  Amateur Radio BBS with LLM interface\n"
 
     return banner
 
