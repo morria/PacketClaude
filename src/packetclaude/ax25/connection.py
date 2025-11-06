@@ -131,12 +131,13 @@ class AX25ConnectionHandler:
         logger.info(f"Connection request from {remote_key}")
 
         # Create or update connection
+        # Use the destination SSID from the incoming frame so we respond as the callsign they connected to
         if remote_key not in self.connections:
             conn = AX25Connection(
                 frame.source.callsign.strip(),
                 frame.source.ssid,
-                self.local_callsign,
-                self.local_ssid
+                frame.destination.callsign.strip(),  # Use destination from frame
+                frame.destination.ssid  # Use destination SSID from frame
             )
             self.connections[remote_key] = conn
         else:
@@ -147,12 +148,12 @@ class AX25ConnectionHandler:
         conn.connected_at = time.time()
         conn.last_activity = time.time()
 
-        # Send UA (Unnumbered Acknowledge)
+        # Send UA (Unnumbered Acknowledge) - respond as the callsign they connected to
         ua_frame = AX25Frame.create_ua_frame(
             frame.source.callsign.strip(),
-            self.local_callsign,
+            frame.destination.callsign.strip(),  # Respond as destination
             frame.source.ssid,
-            self.local_ssid
+            frame.destination.ssid  # Use destination SSID
         )
         self._send_frame(ua_frame)
 
@@ -164,12 +165,12 @@ class AX25ConnectionHandler:
         """Handle DISC (disconnect request)"""
         logger.info(f"Disconnect request from {remote_key}")
 
-        # Send UA (acknowledge)
+        # Send UA (acknowledge) - respond as the callsign they disconnected from
         ua_frame = AX25Frame.create_ua_frame(
             frame.source.callsign.strip(),
-            self.local_callsign,
+            frame.destination.callsign.strip(),  # Respond as destination
             frame.source.ssid,
-            self.local_ssid
+            frame.destination.ssid  # Use destination SSID
         )
         self._send_frame(ua_frame)
 
@@ -193,8 +194,8 @@ class AX25ConnectionHandler:
             conn = AX25Connection(
                 frame.source.callsign.strip(),
                 frame.source.ssid,
-                self.local_callsign,
-                self.local_ssid
+                frame.destination.callsign.strip(),  # Use destination from frame
+                frame.destination.ssid  # Use destination SSID from frame
             )
             # Don't add to connections dict for UI frames
         else:
@@ -210,12 +211,12 @@ class AX25ConnectionHandler:
     def _handle_data(self, frame: AX25Frame, remote_key: str):
         """Handle data frame in connected mode"""
         if remote_key not in self.connections:
-            # No connection exists, send DM
+            # No connection exists, send DM (respond as the destination they sent to)
             dm_frame = AX25Frame.create_dm_frame(
                 frame.source.callsign.strip(),
-                self.local_callsign,
+                frame.destination.callsign.strip(),  # Respond as destination
                 frame.source.ssid,
-                self.local_ssid
+                frame.destination.ssid  # Use destination SSID
             )
             self._send_frame(dm_frame)
             return
@@ -258,10 +259,10 @@ class AX25ConnectionHandler:
         # In a full implementation, would use I frames
         frame = AX25Frame.create_ui_frame(
             connection.remote_callsign,
-            self.local_callsign,
+            connection.local_callsign,  # Use connection's local callsign
             data,
             connection.remote_ssid,
-            self.local_ssid
+            connection.local_ssid  # Use connection's local SSID
         )
 
         if self._send_frame(frame):
@@ -281,12 +282,12 @@ class AX25ConnectionHandler:
         if connection.state == ConnectionState.DISCONNECTED:
             return
 
-        # Send DISC frame
+        # Send DISC frame using connection's local callsign
         disc_frame = AX25Frame.create_disc_frame(
             connection.remote_callsign,
-            self.local_callsign,
+            connection.local_callsign,  # Use connection's local callsign
             connection.remote_ssid,
-            self.local_ssid
+            connection.local_ssid  # Use connection's local SSID
         )
         self._send_frame(disc_frame)
 
