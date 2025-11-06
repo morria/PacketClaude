@@ -17,6 +17,9 @@ PacketClaude creates a packet radio BBS-style node that ham radio operators can 
 - **Rate Limiting**: Configurable usage limits per callsign
 - **Activity Logging**: Complete audit trail of all interactions
 - **Graceful Error Handling**: Robust handling of network, API, and radio issues
+- **File Transfer via YAPP**: Upload and download files over AX.25 using standard YAPP protocol
+- **Classic BBS Games**: Includes Drugwars, Tradewars, Blackjack, Lemonade Stand, and Ham Radio Trivia
+- **BBS-Style Interface**: Optimized for low-bandwidth packet radio with terse command responses
 
 ## Requirements
 
@@ -107,8 +110,48 @@ connect N0CALL-10
 3. **Session Creation**: A new Claude conversation context is created for the callsign
 4. **Interaction**: User messages are sent to Claude API, responses are transmitted back
 5. **Context Preservation**: Conversation history is maintained for the session duration
-6. **Logging**: All interactions are logged with callsign, timestamp, and content
-7. **Disconnection**: When user disconnects, session context is cleared
+6. **File Transfer**: Users can upload/download files via YAPP protocol (see [File Transfer docs](docs/FILE_TRANSFER.md))
+7. **Logging**: All interactions are logged with callsign, timestamp, and content
+8. **Disconnection**: When user disconnects, session context is cleared
+
+## BBS Features
+
+PacketClaude provides a classic BBS experience optimized for packet radio:
+
+### Games
+Users can play classic BBS door games by typing `PLAY <game>` or `GAMES` to list available games:
+
+- **Drugwars** - Classic economics trading game set in NYC
+- **Tradewars** - Space trading and combat adventure
+- **Lemonade Stand** - Business simulation game
+- **Blackjack** - Casino card game
+- **Ham Radio Trivia** - Test your amateur radio knowledge
+
+All games are optimized for low bandwidth with single-letter commands and compressed displays.
+
+### Information Services
+- Weather lookup (`WX <location>`)
+- HF propagation conditions (`PROP`)
+- POTA spots (`POTA`)
+- DX Cluster spots (`DX <band> <mode>`)
+- QRZ callsign lookup (`QTH <callsign>`)
+- Grid square calculations (`GRID`, `DIST`)
+- Technical reference and calculations
+
+### Messaging & Mail
+- Personal mailbox system for users
+- Inter-user messaging
+- Session-based message storage
+
+### README for Users
+A comprehensive `README.txt` file is included in `src/packetclaude/files/` with complete BBS instructions.
+
+To make it available to all users, run:
+```bash
+python scripts/upload_readme.py
+```
+
+This uploads README.txt to the file system as a public file that users can download with `/files public` and `/download <id>`.
 
 ## Project Structure
 

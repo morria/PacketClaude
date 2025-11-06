@@ -28,9 +28,11 @@ from .tools.qrz_tool import QRZTool
 from .tools.message_tool import MessageTool
 from .tools.band_conditions import BandConditionsTool
 from .tools.dx_cluster import DXClusterTool
+from .tools.file_tool import FileTool
 from .auth.qrz_lookup import QRZLookup
 from .activity_feed import ActivityFeed
 from .banner import get_banner
+from .files.manager import FileManager
 
 
 logger = logging.getLogger(__name__)
@@ -104,6 +106,7 @@ class PacketClaude:
         self.session_manager: Optional[SessionManager] = None
         self.rate_limiter: Optional[RateLimiter] = None
         self.qrz_lookup: Optional[QRZLookup] = None
+        self.file_manager: Optional[FileManager] = None
 
         # Running flag
         self.running = False
@@ -182,6 +185,7 @@ class PacketClaude:
             self.connection_handler.on_connect = self._on_connect
             self.connection_handler.on_disconnect = self._on_disconnect
             self.connection_handler.on_data = self._on_data
+            self.connection_handler.on_yapp_data = self._on_yapp_data
         else:
             logger.info("KISS/Direwolf connection disabled (telnet-only mode)")
             self.kiss_client = None
@@ -303,6 +307,21 @@ class PacketClaude:
             enabled=True
         )
         tools.append(message_tool)
+
+        # Initialize file manager (needed before file tool)
+        self.file_manager = FileManager(
+            database=self.database,
+            max_file_size=self.config.file_transfer_max_size if hasattr(self.config, 'file_transfer_max_size') else None
+        )
+        logger.info("File manager initialized")
+
+        # Initialize file tool (always enabled)
+        logger.info("File tool enabled")
+        file_tool = FileTool(
+            file_manager=self.file_manager,
+            enabled=True
+        )
+        tools.append(file_tool)
 
         self.claude_client = ClaudeClient(
             api_key=self.config.anthropic_api_key,
@@ -584,6 +603,27 @@ class PacketClaude:
                 self.session_manager.clear_session(connection.remote_address)
                 self._send_to_station(connection, "Conversation history cleared.\n> ")
                 return
+            elif message.lower().startswith('/files') or message.lower().startswith('/list'):
+                self._handle_files_command(connection, message)
+                return
+            elif message.lower().startswith('/download'):
+                self._handle_download_command(connection, message)
+                return
+            elif message.lower().startswith('/fileinfo'):
+                self._handle_fileinfo_command(connection, message)
+                return
+            elif message.lower().startswith('/share'):
+                self._handle_share_command(connection, message)
+                return
+            elif message.lower().startswith('/publicfile'):
+                self._handle_publicfile_command(connection, message)
+                return
+            elif message.lower().startswith('/deletefile'):
+                self._handle_deletefile_command(connection, message)
+                return
+            elif message.lower().startswith('/upload'):
+                self._handle_upload_command(connection, message)
+                return
 
             # Check rate limits
             allowed, reason = self.rate_limiter.check_limit(connection.remote_address)
@@ -725,6 +765,15 @@ Commands:
 - Look up callsigns, get POTA spots, DX cluster spots, search the web
 - Try: "dx cw 20m", "cluster 17m ssb", "pota spots"
 
+File Transfer (via YAPP over AX.25):
+- /upload - Start file upload
+- /files [public|private|shared] - List files
+- /download <id> - Download file by ID
+- /fileinfo <id> - Show file information
+- /share <id> <callsign> - Share file with callsign
+- /publicfile <id> - Make file public
+- /deletefile <id> - Delete file
+
 Your conversation context is preserved during the session.
 """
         self._send_to_station(connection, help_text + "> ")
@@ -746,6 +795,259 @@ Your conversation context is preserved during the session.
             parts = callsign_str.split('-')
             return parts[0].strip().upper(), int(parts[1])
         return callsign_str.strip().upper(), 0
+
+    # File transfer command handlers
+
+    def _handle_files_command(self, connection: AX25Connection, message: str):
+        """Handle /files command - list files"""
+        parts = message.split()
+        access_filter = None
+
+        if len(parts) >= 2:
+            filter_arg = parts[1].lower()
+            if filter_arg in ['public', 'private', 'shared', 'mine']:
+                if filter_arg == 'mine':
+                    access_filter = None  # Will filter by owner in list
+                else:
+                    access_filter = filter_arg
+
+        try:
+            files = self.file_manager.list_files(
+                callsign=connection.remote_address,
+                access_filter=access_filter
+            )
+
+            if not files:
+                self._send_to_station(connection, "No files found.\n> ")
+                return
+
+            # Format file list
+            file_list = self.file_manager.format_file_list(files)
+            self._send_to_station(connection, file_list + "\n\nUse /download <file_id> to download a file.\n> ")
+
+        except Exception as e:
+            logger.error(f"Error listing files: {e}", exc_info=True)
+            self._send_to_station(connection, f"Error listing files: {e}\n> ")
+
+    def _handle_download_command(self, connection: AX25Connection, message: str):
+        """Handle /download command - download a file"""
+        parts = message.split()
+
+        if len(parts) < 2:
+            self._send_to_station(connection, "Usage: /download <file_id>\n> ")
+            return
+
+        try:
+            file_id = int(parts[1])
+        except ValueError:
+            self._send_to_station(connection, "Invalid file ID. Must be a number.\n> ")
+            return
+
+        # Get file
+        file_dict, error = self.file_manager.download_file(file_id, connection.remote_address)
+
+        if error:
+            self._send_to_station(connection, f"Error: {error}\n> ")
+            return
+
+        # Start YAPP download
+        if isinstance(connection, TelnetConnection):
+            if self.telnet_server:
+                # For telnet, we can't use YAPP, just send the file info
+                self._send_to_station(connection,
+                    f"File: {file_dict['filename']}\n"
+                    f"Size: {self.file_manager.format_file_size(file_dict['file_size'])}\n"
+                    f"Note: YAPP file transfer is only supported over AX.25.\n"
+                    f"File contents (text preview):\n"
+                    f"{'='*50}\n"
+                    f"{file_dict['file_data'][:500].decode('utf-8', errors='replace')}\n"
+                    f"{'='*50}\n> "
+                )
+        else:
+            # AX.25 connection - use YAPP
+            self._send_to_station(connection, f"Starting download of {file_dict['filename']}...\n")
+            success = self.connection_handler.start_yapp_download(
+                connection,
+                file_dict['filename'],
+                file_dict['file_data']
+            )
+
+            if not success:
+                self._send_to_station(connection, "Failed to start download.\n> ")
+
+    def _handle_fileinfo_command(self, connection: AX25Connection, message: str):
+        """Handle /fileinfo command - show file information"""
+        parts = message.split()
+
+        if len(parts) < 2:
+            self._send_to_station(connection, "Usage: /fileinfo <file_id>\n> ")
+            return
+
+        try:
+            file_id = int(parts[1])
+        except ValueError:
+            self._send_to_station(connection, "Invalid file ID. Must be a number.\n> ")
+            return
+
+        file_info, error = self.file_manager.get_file_info(file_id, connection.remote_address)
+
+        if error:
+            self._send_to_station(connection, f"Error: {error}\n> ")
+            return
+
+        info_text = f"""
+File Information:
+  ID: {file_info['id']}
+  Filename: {file_info['filename']}
+  Size: {self.file_manager.format_file_size(file_info['file_size'])}
+  Owner: {file_info['owner_callsign']}
+  Access: {file_info['access_level']}
+  Uploaded: {file_info['uploaded_at']}
+  Downloads: {file_info['download_count']}
+  Description: {file_info['description'] or 'None'}
+"""
+        self._send_to_station(connection, info_text + "> ")
+
+    def _handle_share_command(self, connection: AX25Connection, message: str):
+        """Handle /share command - share file with callsign"""
+        parts = message.split()
+
+        if len(parts) < 3:
+            self._send_to_station(connection, "Usage: /share <file_id> <callsign>\n> ")
+            return
+
+        try:
+            file_id = int(parts[1])
+        except ValueError:
+            self._send_to_station(connection, "Invalid file ID. Must be a number.\n> ")
+            return
+
+        shared_with_callsign = parts[2].upper()
+
+        success, error = self.file_manager.share_file(
+            file_id,
+            connection.remote_address,
+            shared_with_callsign
+        )
+
+        if success:
+            self._send_to_station(connection, f"File shared with {shared_with_callsign}.\n> ")
+        else:
+            self._send_to_station(connection, f"Error: {error}\n> ")
+
+    def _handle_publicfile_command(self, connection: AX25Connection, message: str):
+        """Handle /publicfile command - make file public"""
+        parts = message.split()
+
+        if len(parts) < 2:
+            self._send_to_station(connection, "Usage: /publicfile <file_id>\n> ")
+            return
+
+        try:
+            file_id = int(parts[1])
+        except ValueError:
+            self._send_to_station(connection, "Invalid file ID. Must be a number.\n> ")
+            return
+
+        success, error = self.file_manager.set_file_public(file_id, connection.remote_address)
+
+        if success:
+            self._send_to_station(connection, f"File {file_id} is now public.\n> ")
+        else:
+            self._send_to_station(connection, f"Error: {error}\n> ")
+
+    def _handle_deletefile_command(self, connection: AX25Connection, message: str):
+        """Handle /deletefile command - delete a file"""
+        parts = message.split()
+
+        if len(parts) < 2:
+            self._send_to_station(connection, "Usage: /deletefile <file_id>\n> ")
+            return
+
+        try:
+            file_id = int(parts[1])
+        except ValueError:
+            self._send_to_station(connection, "Invalid file ID. Must be a number.\n> ")
+            return
+
+        success, error = self.file_manager.delete_file(file_id, connection.remote_address)
+
+        if success:
+            self._send_to_station(connection, f"File {file_id} deleted.\n> ")
+        else:
+            self._send_to_station(connection, f"Error: {error}\n> ")
+
+    def _handle_upload_command(self, connection: AX25Connection, message: str):
+        """Handle /upload command - start file upload"""
+        if isinstance(connection, TelnetConnection):
+            self._send_to_station(connection,
+                "YAPP file upload is only supported over AX.25 connections.\n"
+                "Please use Packet Commander or another AX.25 client to upload files.\n> "
+            )
+            return
+
+        # Start YAPP upload
+        self._send_to_station(connection, "Ready to receive file via YAPP. Send ENQ to start.\n")
+        success = self.connection_handler.start_yapp_upload(connection)
+
+        if not success:
+            self._send_to_station(connection, "Failed to start upload.\n> ")
+
+    def _on_yapp_data(self, connection: AX25Connection, data: bytes):
+        """Handle incoming YAPP data"""
+        try:
+            # Handle YAPP packet
+            self.connection_handler.handle_yapp_packet(connection, data)
+
+            # Check if transfer is complete
+            transfer = self.connection_handler.get_yapp_transfer(connection)
+
+            if transfer and transfer.is_complete():
+                # Get transferred file
+                if transfer.is_upload:
+                    # File was uploaded to us
+                    filename = transfer.header.filename if transfer.header else "unknown.dat"
+                    file_data = bytes(transfer.file_data)
+
+                    # Save file
+                    file_id, error = self.file_manager.upload_file(
+                        filename=filename,
+                        file_data=file_data,
+                        owner_callsign=connection.remote_address,
+                        access_level='private'
+                    )
+
+                    if error:
+                        self._send_to_station(connection, f"\nUpload failed: {error}\n> ")
+                    else:
+                        self._send_to_station(connection,
+                            f"\nFile uploaded successfully!\n"
+                            f"File ID: {file_id}\n"
+                            f"Filename: {filename}\n"
+                            f"Size: {self.file_manager.format_file_size(len(file_data))}\n"
+                            f"Use /publicfile {file_id} to make it public.\n"
+                            f"Use /share {file_id} <callsign> to share it.\n> "
+                        )
+
+                        logger.info(f"File uploaded via YAPP: {filename} by {connection.remote_address}")
+
+                else:
+                    # File was downloaded from us
+                    self._send_to_station(connection, "\nDownload complete!\n> ")
+                    logger.info(f"File downloaded via YAPP by {connection.remote_address}")
+
+                # Reset YAPP mode
+                connection.in_yapp_mode = False
+
+            elif transfer and transfer.is_error():
+                # Transfer error
+                self._send_to_station(connection, "\nFile transfer failed or was cancelled.\n> ")
+                connection.in_yapp_mode = False
+
+        except Exception as e:
+            logger.error(f"Error handling YAPP data: {e}", exc_info=True)
+            self._send_to_station(connection, "\nFile transfer error.\n> ")
+            connection.in_yapp_mode = False
 
     def stop(self):
         """Stop PacketClaude"""

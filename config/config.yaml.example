@@ -145,3 +145,20 @@ sessions:
 
   # Maximum messages to keep in context per session
   max_context_messages: 20
+
+# File transfer configuration
+file_transfer:
+  # Enable/disable file transfer via YAPP protocol
+  enabled: true
+
+  # Maximum file size in kilobytes
+  max_file_size_kb: 100
+
+  # Maximum number of files per user
+  max_files_per_user: 50
+
+  # Maximum total storage per user in megabytes
+  max_total_size_per_user_mb: 5
+
+  # YAPP protocol timeout in seconds
+  yapp_timeout_seconds: 30

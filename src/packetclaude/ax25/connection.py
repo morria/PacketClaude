@@ -8,6 +8,7 @@ from typing import Dict, Optional, Callable
 from enum import Enum
 from .protocol import AX25Frame, parse_callsign
 from .kiss import KISSClient
+from .yapp import YAPPManager, YAPPControl
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class AX25Connection:
         self.last_activity: float = time.time()
         self.packets_sent = 0
         self.packets_received = 0
+        self.in_yapp_mode = False  # Flag for YAPP file transfer mode
 
     @property
     def remote_address(self) -> str:
@@ -90,6 +92,10 @@ class AX25ConnectionHandler:
         self.on_connect: Optional[Callable[[AX25Connection], None]] = None
         self.on_disconnect: Optional[Callable[[AX25Connection], None]] = None
         self.on_data: Optional[Callable[[AX25Connection, bytes], None]] = None
+        self.on_yapp_data: Optional[Callable[[AX25Connection, bytes], None]] = None
+
+        # YAPP manager
+        self.yapp_manager = YAPPManager()
 
     def handle_incoming_frame(self, frame: AX25Frame):
         """
@@ -223,8 +229,14 @@ class AX25ConnectionHandler:
         conn.last_activity = time.time()
         conn.packets_received += 1
 
+        # Check if this is YAPP data
+        if frame.info and self._is_yapp_packet(frame.info):
+            # Handle YAPP packet
+            conn.in_yapp_mode = True
+            if self.on_yapp_data:
+                self.on_yapp_data(conn, frame.info)
         # Notify callback if there's data
-        if self.on_data and frame.info:
+        elif self.on_data and frame.info:
             self.on_data(conn, frame.info)
 
     def send_data(self, connection: AX25Connection, data: bytes) -> bool:
@@ -340,3 +352,111 @@ class AX25ConnectionHandler:
                 self.on_disconnect(conn)
 
             del self.connections[key]
+
+        # Cleanup YAPP timeouts
+        self.yapp_manager.cleanup_timeouts()
+
+    def _is_yapp_packet(self, data: bytes) -> bool:
+        """
+        Check if data appears to be a YAPP packet
+
+        Args:
+            data: Packet data
+
+        Returns:
+            True if YAPP packet
+        """
+        if not data:
+            return False
+
+        # Check for YAPP control characters
+        yapp_controls = {
+            YAPPControl.ENQ, YAPPControl.ACK, YAPPControl.NAK,
+            YAPPControl.SOH, YAPPControl.STX, YAPPControl.ETX,
+            YAPPControl.EOT, YAPPControl.CAN
+        }
+
+        return data[0] in yapp_controls
+
+    def start_yapp_upload(self, connection: AX25Connection) -> bool:
+        """
+        Start receiving a file via YAPP
+
+        Args:
+            connection: Connection to receive from
+
+        Returns:
+            True if started successfully
+        """
+        response = self.yapp_manager.start_upload(connection.remote_address)
+        if response:
+            connection.in_yapp_mode = True
+            return self.send_data(connection, response)
+        return False
+
+    def start_yapp_download(self, connection: AX25Connection,
+                           filename: str, file_data: bytes) -> bool:
+        """
+        Start sending a file via YAPP
+
+        Args:
+            connection: Connection to send to
+            filename: Filename
+            file_data: File contents
+
+        Returns:
+            True if started successfully
+        """
+        response = self.yapp_manager.start_download(
+            connection.remote_address,
+            filename,
+            file_data
+        )
+        if response:
+            connection.in_yapp_mode = True
+            return self.send_data(connection, response)
+        return False
+
+    def handle_yapp_packet(self, connection: AX25Connection, data: bytes) -> bool:
+        """
+        Handle YAPP packet and send response
+
+        Args:
+            connection: Connection
+            data: YAPP packet data
+
+        Returns:
+            True if handled successfully
+        """
+        response = self.yapp_manager.handle_packet(connection.remote_address, data)
+        if response:
+            return self.send_data(connection, response)
+        return True  # No response needed, but successfully handled
+
+    def get_yapp_transfer(self, connection: AX25Connection):
+        """
+        Get active YAPP transfer for connection
+
+        Args:
+            connection: Connection
+
+        Returns:
+            YAPPTransfer object or None
+        """
+        return self.yapp_manager.get_transfer(connection.remote_address)
+
+    def cancel_yapp_transfer(self, connection: AX25Connection) -> bool:
+        """
+        Cancel YAPP transfer
+
+        Args:
+            connection: Connection
+
+        Returns:
+            True if cancelled
+        """
+        response = self.yapp_manager.cancel_transfer(connection.remote_address)
+        if response:
+            connection.in_yapp_mode = False
+            return self.send_data(connection, response)
+        return False

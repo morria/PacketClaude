@@ -309,6 +309,31 @@ class Config:
         """Get maximum context messages per session"""
         return self.get('sessions.max_context_messages', 20)
 
+    @property
+    def file_transfer_enabled(self) -> bool:
+        """Check if file transfer is enabled"""
+        return self.get('file_transfer.enabled', True)
+
+    @property
+    def file_transfer_max_size(self) -> int:
+        """Get maximum file size in bytes"""
+        return self.get('file_transfer.max_file_size_kb', 100) * 1024
+
+    @property
+    def file_transfer_max_files_per_user(self) -> int:
+        """Get maximum number of files per user"""
+        return self.get('file_transfer.max_files_per_user', 50)
+
+    @property
+    def file_transfer_max_total_size_per_user(self) -> int:
+        """Get maximum total size per user in bytes"""
+        return self.get('file_transfer.max_total_size_per_user_mb', 5) * 1024 * 1024
+
+    @property
+    def yapp_timeout_seconds(self) -> int:
+        """Get YAPP transfer timeout in seconds"""
+        return self.get('file_transfer.yapp_timeout_seconds', 30)
+
     def reload(self):
         """Reload configuration from file"""
         self._load_config()

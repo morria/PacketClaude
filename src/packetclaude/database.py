@@ -116,6 +116,35 @@ class Database:
                 )
             """)
 
+            # Files table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS files (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT NOT NULL,
+                    file_data BLOB NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    mime_type TEXT,
+                    checksum TEXT NOT NULL,
+                    owner_callsign TEXT NOT NULL,
+                    access_level TEXT NOT NULL DEFAULT 'private',
+                    description TEXT,
+                    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    download_count INTEGER DEFAULT 0
+                )
+            """)
+
+            # File shares table (for callsign-specific sharing)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS file_shares (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_id INTEGER NOT NULL,
+                    shared_with_callsign TEXT NOT NULL,
+                    shared_by_callsign TEXT NOT NULL,
+                    shared_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+                )
+            """)
+
             # Create indexes
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_connections_callsign
@@ -155,6 +184,26 @@ class Database:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_errors_timestamp
                 ON errors(timestamp)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_files_owner_callsign
+                ON files(owner_callsign)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_files_access_level
+                ON files(access_level)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_file_shares_file_id
+                ON file_shares(file_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_file_shares_shared_with
+                ON file_shares(shared_with_callsign)
             """)
 
     # Connection logging methods
@@ -706,3 +755,295 @@ class Database:
             """, (callsign.upper(),))
             row = cursor.fetchone()
             return row['count'] if row else 0
+
+    # File management methods
+
+    def save_file(self, filename: str, file_data: bytes, file_size: int,
+                  mime_type: str, checksum: str, owner_callsign: str,
+                  access_level: str = 'private', description: str = None) -> int:
+        """
+        Save a file to the database
+
+        Args:
+            filename: Original filename
+            file_data: File contents as bytes
+            file_size: File size in bytes
+            mime_type: MIME type of the file
+            checksum: MD5 checksum of file data
+            owner_callsign: Callsign of file owner
+            access_level: Access level ('private', 'public', 'shared')
+            description: Optional file description
+
+        Returns:
+            File ID
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO files (filename, file_data, file_size, mime_type,
+                                 checksum, owner_callsign, access_level, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (filename, file_data, file_size, mime_type, checksum,
+                  owner_callsign.upper(), access_level, description))
+            return cursor.lastrowid
+
+    def get_file(self, file_id: int) -> Optional[Dict]:
+        """
+        Get a file by ID
+
+        Args:
+            file_id: File ID
+
+        Returns:
+            File dictionary or None
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, filename, file_data, file_size, mime_type,
+                       checksum, owner_callsign, access_level, description,
+                       uploaded_at, download_count
+                FROM files
+                WHERE id = ?
+            """, (file_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                'id': row['id'],
+                'filename': row['filename'],
+                'file_data': row['file_data'],
+                'file_size': row['file_size'],
+                'mime_type': row['mime_type'],
+                'checksum': row['checksum'],
+                'owner_callsign': row['owner_callsign'],
+                'access_level': row['access_level'],
+                'description': row['description'],
+                'uploaded_at': row['uploaded_at'],
+                'download_count': row['download_count']
+            }
+
+    def list_files(self, callsign: str = None, access_filter: str = None,
+                   include_data: bool = False) -> List[Dict]:
+        """
+        List files accessible to a callsign
+
+        Args:
+            callsign: Callsign to check access for (if None, only public files)
+            access_filter: Filter by access level ('public', 'private', 'shared')
+            include_data: Include file_data in results (default False for listings)
+
+        Returns:
+            List of file dictionaries
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build query
+            fields = ['id', 'filename', 'file_size', 'mime_type', 'checksum',
+                     'owner_callsign', 'access_level', 'description',
+                     'uploaded_at', 'download_count']
+            if include_data:
+                fields.insert(2, 'file_data')
+
+            query = f"SELECT {', '.join(fields)} FROM files WHERE 1=1"
+            params = []
+
+            # Filter by access
+            if callsign:
+                callsign_upper = callsign.upper()
+                # User can see: their own files, public files, and files shared with them
+                query += """ AND (
+                    owner_callsign = ?
+                    OR access_level = 'public'
+                    OR (access_level = 'shared' AND id IN (
+                        SELECT file_id FROM file_shares WHERE shared_with_callsign = ?
+                    ))
+                )"""
+                params.extend([callsign_upper, callsign_upper])
+            else:
+                # No callsign - only public files
+                query += " AND access_level = 'public'"
+
+            # Apply access filter
+            if access_filter:
+                query += " AND access_level = ?"
+                params.append(access_filter)
+
+            query += " ORDER BY uploaded_at DESC"
+
+            cursor.execute(query, params)
+
+            files = []
+            for row in cursor.fetchall():
+                file_dict = {
+                    'id': row['id'],
+                    'filename': row['filename'],
+                    'file_size': row['file_size'],
+                    'mime_type': row['mime_type'],
+                    'checksum': row['checksum'],
+                    'owner_callsign': row['owner_callsign'],
+                    'access_level': row['access_level'],
+                    'description': row['description'],
+                    'uploaded_at': row['uploaded_at'],
+                    'download_count': row['download_count']
+                }
+                if include_data:
+                    file_dict['file_data'] = row['file_data']
+                files.append(file_dict)
+
+            return files
+
+    def delete_file(self, file_id: int, callsign: str) -> bool:
+        """
+        Delete a file (only owner can delete)
+
+        Args:
+            file_id: File ID
+            callsign: Callsign attempting to delete
+
+        Returns:
+            True if deleted, False otherwise
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM files
+                WHERE id = ? AND owner_callsign = ?
+            """, (file_id, callsign.upper()))
+            return cursor.rowcount > 0
+
+    def share_file(self, file_id: int, owner_callsign: str,
+                  shared_with_callsign: str) -> bool:
+        """
+        Share a file with a specific callsign
+
+        Args:
+            file_id: File ID
+            owner_callsign: File owner's callsign
+            shared_with_callsign: Callsign to share with
+
+        Returns:
+            True if shared successfully
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Verify ownership
+            cursor.execute("""
+                SELECT id, access_level FROM files
+                WHERE id = ? AND owner_callsign = ?
+            """, (file_id, owner_callsign.upper()))
+            file_row = cursor.fetchone()
+
+            if not file_row:
+                return False
+
+            # Update access level to 'shared' if it's not already
+            if file_row['access_level'] != 'shared':
+                cursor.execute("""
+                    UPDATE files SET access_level = 'shared'
+                    WHERE id = ?
+                """, (file_id,))
+
+            # Add share entry (check for duplicates)
+            cursor.execute("""
+                INSERT OR IGNORE INTO file_shares
+                (file_id, shared_with_callsign, shared_by_callsign)
+                VALUES (?, ?, ?)
+            """, (file_id, shared_with_callsign.upper(), owner_callsign.upper()))
+
+            return True
+
+    def check_file_access(self, file_id: int, callsign: str) -> bool:
+        """
+        Check if a callsign has access to a file
+
+        Args:
+            file_id: File ID
+            callsign: Callsign to check
+
+        Returns:
+            True if access allowed
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get file info
+            cursor.execute("""
+                SELECT owner_callsign, access_level FROM files WHERE id = ?
+            """, (file_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return False
+
+            callsign_upper = callsign.upper()
+
+            # Owner always has access
+            if row['owner_callsign'] == callsign_upper:
+                return True
+
+            # Public files are accessible to all
+            if row['access_level'] == 'public':
+                return True
+
+            # Check if file is shared with this callsign
+            if row['access_level'] == 'shared':
+                cursor.execute("""
+                    SELECT id FROM file_shares
+                    WHERE file_id = ? AND shared_with_callsign = ?
+                """, (file_id, callsign_upper))
+                return cursor.fetchone() is not None
+
+            return False
+
+    def increment_download_count(self, file_id: int):
+        """
+        Increment the download count for a file
+
+        Args:
+            file_id: File ID
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE files SET download_count = download_count + 1
+                WHERE id = ?
+            """, (file_id,))
+
+    def get_file_count(self, callsign: str) -> int:
+        """
+        Get count of files owned by a callsign
+
+        Args:
+            callsign: Callsign
+
+        Returns:
+            Number of files
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM files WHERE owner_callsign = ?
+            """, (callsign.upper(),))
+            row = cursor.fetchone()
+            return row['count'] if row else 0
+
+    def get_total_file_size(self, callsign: str) -> int:
+        """
+        Get total size of files owned by a callsign
+
+        Args:
+            callsign: Callsign
+
+        Returns:
+            Total file size in bytes
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT SUM(file_size) as total FROM files WHERE owner_callsign = ?
+            """, (callsign.upper(),))
+            row = cursor.fetchone()
+            return row['total'] if row and row['total'] else 0

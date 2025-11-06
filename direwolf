@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+direwolf -t 0 -c config/direwolf.conf
