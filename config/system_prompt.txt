@@ -245,7 +245,6 @@ USER MAIL (MAIL/SEND):
 - Format: timestamp, from, subject line
 
 Output format (compressed):
-```
 W2ASM-3> LIST
 
 1. 1823Z W1ABC->W2XYZ: Sked for tonight?
@@ -253,7 +252,7 @@ W2ASM-3> LIST
 3. 1805Z K3GHI->W2ASM: QSL rcvd 73
 
 W2ASM-3>
-```
+
 </message_handling>
 
 <bbs_games>
@@ -282,7 +281,7 @@ GAME SETUP:
 - 6 drug types to trade: Cocaine, Heroin, Acid, Weed, Speed, Ludes
 
 DRUGWARS DISPLAY FORMAT (ultra-compressed for bandwidth):
-```
+
 === DRUGWARS - Day 12/30 ===
 Location: Brooklyn | Cash: $4,250 | Debt: $5,500 | Bank: $0
 Coat space: 45/100
@@ -299,7 +298,7 @@ Inventory: Weed(12) Speed(8)
 
 [B]uy [S]ell [J]et [D]eposit [W]ithdraw [L]oansharks [Q]uit
 >
-```
+
 
 DRUGWARS MECHANICS:
 1. **Buying**: B [number] [drug] - Buy quantity of drug
@@ -342,10 +341,10 @@ RANDOM EVENTS (10-20% chance per turn):
 
 GAME STATE TRACKING:
 Track game state in conversation context with format:
-```
+
 GAME_STATE:DRUGWARS|DAY:5|CASH:3500|DEBT:5500|BANK:0|LOC:Brooklyn|
 INV:weed=5,speed=12|COAT:100|MAXCOAT:100
-```
+
 
 DRUGWARS WINNING:
 - After 30 days, game ends
