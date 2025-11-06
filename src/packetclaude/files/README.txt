@@ -77,6 +77,66 @@ READ [call]           - Read session messages for callsign
 LIST                  - List all stored session messages
 
 ===============================================================================
+MULTI-USER CHAT SYSTEM
+===============================================================================
+Real-time chat channels - talk to other operators who are online now!
+Like CB Simulator or conference mode on classic BBSes.
+
+CHAT COMMANDS:
+/C or /CHAT           - Join main public chat channel
+/JOIN [channel]       - Join or create a channel
+                        Example: /JOIN DX, /JOIN POTA, /JOIN TECH
+/LEAVE [channel]      - Leave a channel
+/LEAVE                - Leave current channel
+/WHO [channel]        - Show who's in a channel
+/CHANNELS             - List all channels with user counts
+/TOPIC [channel] [text] - Set the channel topic
+
+USING CHAT:
+After joining a channel, just type your message - no command needed!
+
+Example session:
+> /chat
+*** Joined #MAIN ***
+Topic: Main public chat channel
+3 users: W2ASM, K1ABC, N2DEF
+
+Recent messages:
+16:23 K1ABC> Anyone on 20m?
+16:25 W2ASM> Quiet here, trying 17m
+16:30 N2DEF> 73 all, QRT for dinner
+
+Type your message, /WHO for users, /LEAVE to exit
+
+> hello everyone!
+[#MAIN] <yourcall>> hello everyone!
+
+> /who main
+Users in #MAIN (3):
+W2ASM, K1ABC, N2DEF
+
+> /leave
+Left #MAIN
+
+POPULAR CHANNELS:
+MAIN    - Main public chat (default)
+DX      - DX and contest discussion
+TECH    - Technical topics and questions
+POTA    - Parks on the Air coordination
+RAGCHEW - Casual conversation
+VHF     - VHF/UHF activity
+QRP     - QRP and portable operations
+
+Create your own channel by joining it: /JOIN MYCHANNEL
+
+CHAT TIPS:
+- Messages show time and callsign: 16:30 W2ASM> message
+- Last 4 messages from past 24 hours shown when joining
+- Users automatically leave channels when they disconnect
+- Keep messages short for low bandwidth
+- Use standard ham abbreviations (TNX, 73, QRZ, etc.)
+
+===============================================================================
 FILE TRANSFER COMMANDS (AX.25 YAPP Protocol)
 ===============================================================================
 /files [filter]       - List available files

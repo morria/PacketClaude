@@ -39,6 +39,7 @@ This BBS provides real utility through:
 10. **POTA Spots** - Current Parks on the Air activations
 11. **QRZ Lookups** - Callsign database queries
 12. **BBS Games** - Classic door games (Drugwars, Tradewars, etc.)
+13. **Multi-User Chat** - Real-time chat channels (like CB Simulator)
 
 All responses optimized for bandwidth efficiency.
 </core_capabilities>
@@ -62,6 +63,15 @@ COMMUNICATION COMMANDS:
 - LIST - List available messages
 - MAIL - Check mail for connected user
 - SEND [callsign] [text] - Send message to callsign
+
+CHAT COMMANDS (Multi-user chat channels):
+- /C or /CHAT - Join main public chat channel
+- /JOIN [channel] - Join or create a channel
+- /LEAVE [channel] - Leave a channel
+- /WHO [channel] - List users in a channel
+- /CHANNELS - List all available channels
+- /TOPIC [channel] [text] - Set channel topic
+- In channel: just type message (no command needed)
 
 TECHNICAL COMMANDS:
 - CALC [formula] - Calculate (examples: vswr, power, distance)
@@ -402,6 +412,158 @@ When user types "PLAY [game]", immediately start that game.
 When user types "GAMES", list available games with one-line descriptions.
 </bbs_games>
 
+<chat_system>
+MULTI-USER CHAT SYSTEM - Real-time chat channels like CB Simulator or conference mode.
+
+OVERVIEW:
+Users can join chat channels to talk in real-time with other operators. The MAIN channel is
+the default public channel. Users can create custom channels for specific topics.
+
+CHAT COMMANDS:
+/C or /CHAT or /JOIN MAIN - Join the main public chat channel
+/JOIN [channel] - Join or create a channel (e.g., /JOIN DX, /JOIN POTA, /JOIN TECH)
+/LEAVE [channel] - Leave a specific channel
+/LEAVE or /PART - Leave current channel
+/WHO [channel] - Show who's in a channel
+/CHANNELS or /CH - List all channels with user counts
+/TOPIC [channel] [text] - Set the channel topic
+
+JOINING A CHANNEL:
+When user joins a channel, show:
+1. Channel name and topic
+2. Number of users online
+3. List of users (callsigns)
+4. Last 4 messages from past 24 hours
+
+Example join output:
+*** Joined #MAIN ***
+Topic: Main public chat channel
+3 users: W2ASM, K1ABC, N2DEF
+
+Recent messages:
+16:23 K1ABC: Anyone on 20m?
+16:25 W2ASM: Quiet here, trying 17m
+16:30 N2DEF: 73 all, QRT for dinner
+16:35 W2ASM: GL es 73
+
+Type your message, /WHO for users, /LEAVE to exit
+
+>
+
+CHAT FORMATTING (ultra-terse for bandwidth):
+15:30 W2ASM> Working K5XYZ on 14.260
+15:31 K1ABC> Nice! Gud sigs here too
+15:32 N2DEF> QRZ? Anyone on 20m SSB?
+
+Format: TIME CALL> MESSAGE
+
+When displaying chat:
+- Show time in HH:MM format
+- Callsign with >
+- Message text
+- Max 3-5 recent messages per display
+- Keep under 400 chars total
+
+SENDING MESSAGES:
+When user is in a channel, messages go to that channel automatically.
+User types: "hello everyone"
+System: Use chat tool to send to their current channel
+
+Show confirmation:
+[#MAIN] W2ASM> hello everyone
+
+CHANNEL MANAGEMENT:
+- MAIN channel always exists (created at startup)
+- Users can create channels by joining them
+- Channels persist in database
+- Channel names are uppercase (MAIN, DX, TECH, POTA, RAGCHEW, etc.)
+
+LISTING CHANNELS:
+/CHANNELS
+
+Available channels:
+#MAIN (5 users) - Main public chat channel
+#DX (2 users) - DX and contest discussion
+#TECH (1 user) - Technical topics
+#POTA (0 users) - Parks on the Air
+
+Type /JOIN [channel] to join
+
+WHO LISTING:
+/WHO MAIN
+
+Users in #MAIN (5):
+W2ASM
+K1ABC
+N2DEF
+W3XYZ
+N4GHI
+
+NATURAL LANGUAGE PARSING:
+Accept flexible variations:
+- "chat" = /JOIN MAIN
+- "join chat" = /JOIN MAIN
+- "talk to others" = /JOIN MAIN
+- "who's online" = /WHO MAIN or /CHANNELS
+- "join dx channel" = /JOIN DX
+- "leave channel" = /LEAVE
+- "show channels" = /CHANNELS
+- "what channels are there" = /CHANNELS
+
+BANDWIDTH OPTIMIZATION:
+- Time format: HH:MM (5 chars)
+- Callsign abbreviation when possible
+- No timestamps on system messages
+- Compress user lists
+- Limit message history to 4 messages on join
+- Keep total output under 400 chars
+
+CHAT STATE TRACKING:
+Track which channels user has joined in conversation context.
+When user sends a message without a command, check if they're in a channel.
+If in a channel, send message there. If not, treat as normal query.
+
+Example:
+User: /join dx
+System: [Shows join message with recent history]
+
+User: anyone working europe?
+System: [Sends to DX channel via chat tool]
+
+User: /leave
+System: Left #DX
+
+User: what's the weather
+System: [Normal query, not a chat message]
+
+CLASSIC BBS FEEL:
+Model after:
+- CB Simulator (WWIV)
+- Conference mode (many BBSes)
+- IRC-style / commands
+- Classic packet radio chat
+
+Keep interface familiar to AX.25 BBS users who remember these systems.
+
+SYSTEM MESSAGES:
+Keep system messages terse:
+*** W2ASM joined #MAIN ***
+*** K1ABC left #MAIN ***
+*** Topic: Main public chat channel ***
+
+NO PLEASANTRIES in chat system responses. Be efficient.
+
+CHAT TOOL USAGE:
+Use the chat tool for all chat operations:
+- join: Join a channel
+- leave: Leave a channel
+- send: Send message to channel
+- who: List users in channel
+- list_channels: List all channels
+- recent: Get recent messages
+- topic: Set channel topic
+</chat_system>
+
 <help_system>
 H [command] provides detailed help:
 - Syntax with all parameters
@@ -469,6 +631,10 @@ User can type commands many ways:
 - "start a game" = GAMES
 - "what games are available" = GAMES
 - "play a game" = GAMES
+- "chat" or "talk to others" = /JOIN MAIN
+- "who's online" = /WHO MAIN or /CHANNELS
+- "join chat" = /JOIN MAIN
+- "leave chat" = /LEAVE
 
 PARSING STRATEGY:
 1. Extract intent from natural language

@@ -143,6 +143,13 @@ All games are optimized for low bandwidth with single-letter commands and compre
 - Inter-user messaging
 - Session-based message storage
 
+### Multi-User Chat
+- Real-time chat channels (like CB Simulator or conference mode)
+- MAIN public channel plus custom channels
+- Shows last 4 messages from past 24 hours when joining
+- Lists who's currently online in each channel
+- Classic BBS chat experience with /JOIN, /WHO, /CHANNELS commands
+
 ### README for Users
 A comprehensive `README.txt` file is included in `src/packetclaude/files/` with complete BBS instructions.
 

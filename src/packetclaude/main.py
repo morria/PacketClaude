@@ -29,6 +29,7 @@ from .tools.message_tool import MessageTool
 from .tools.band_conditions import BandConditionsTool
 from .tools.dx_cluster import DXClusterTool
 from .tools.file_tool import FileTool
+from .tools.chat_tool import ChatTool
 from .auth.qrz_lookup import QRZLookup
 from .activity_feed import ActivityFeed
 from .banner import get_banner
@@ -323,6 +324,18 @@ class PacketClaude:
         )
         tools.append(file_tool)
 
+        # Initialize chat tool (always enabled)
+        logger.info("Chat tool enabled")
+        chat_tool = ChatTool(
+            database=self.database,
+            enabled=True
+        )
+        tools.append(chat_tool)
+
+        # Initialize MAIN channel if it doesn't exist
+        logger.info("Ensuring MAIN chat channel exists")
+        self.database.get_or_create_channel("MAIN", "SYSOP", "Main public chat channel")
+
         self.claude_client = ClaudeClient(
             api_key=self.config.anthropic_api_key,
             model=self.config.claude_model,
@@ -413,6 +426,9 @@ class PacketClaude:
 
                 # Cleanup old database data (keep 30 days)
                 self.database.cleanup_old_data(days=30)
+
+                # Cleanup stale chat presence (1 hour inactive)
+                self.database.cleanup_stale_presence(hours=1)
 
                 # Log statistics
                 stats = self.session_manager.get_stats()
@@ -528,6 +544,9 @@ class PacketClaude:
     def _on_disconnect(self, connection: AX25Connection):
         """Handle disconnection"""
         logger.info(f"Disconnection from {connection.remote_address}")
+
+        # Remove from all chat channels
+        self.database.leave_all_channels(connection.remote_address)
 
         # Log disconnection
         if hasattr(connection, 'connection_id'):

@@ -145,6 +145,43 @@ class Database:
                 )
             """)
 
+            # Chat channels table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_channels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_name TEXT NOT NULL UNIQUE,
+                    created_by TEXT NOT NULL,
+                    topic TEXT,
+                    is_public INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Chat messages table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id INTEGER NOT NULL,
+                    callsign TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Chat presence table (who's currently in which channel)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_presence (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id INTEGER NOT NULL,
+                    callsign TEXT NOT NULL,
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE,
+                    UNIQUE(channel_id, callsign)
+                )
+            """)
+
             # Create indexes
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_connections_callsign
@@ -194,6 +231,26 @@ class Database:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_files_access_level
                 ON files(access_level)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_channel_id
+                ON chat_messages(channel_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_timestamp
+                ON chat_messages(timestamp)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_presence_channel_id
+                ON chat_presence(channel_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_presence_callsign
+                ON chat_presence(callsign)
             """)
 
             cursor.execute("""
@@ -1047,3 +1104,271 @@ class Database:
             """, (callsign.upper(),))
             row = cursor.fetchone()
             return row['total'] if row and row['total'] else 0
+
+    # Chat system methods
+
+    def get_or_create_channel(self, channel_name: str, created_by: str, topic: str = None) -> int:
+        """
+        Get or create a chat channel
+
+        Args:
+            channel_name: Name of the channel
+            created_by: Callsign creating the channel
+            topic: Optional channel topic
+
+        Returns:
+            Channel ID
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Try to get existing channel
+            cursor.execute("""
+                SELECT id FROM chat_channels WHERE channel_name = ?
+            """, (channel_name.upper(),))
+
+            row = cursor.fetchone()
+            if row:
+                return row['id']
+
+            # Create new channel
+            cursor.execute("""
+                INSERT INTO chat_channels (channel_name, created_by, topic)
+                VALUES (?, ?, ?)
+            """, (channel_name.upper(), created_by.upper(), topic))
+
+            return cursor.lastrowid
+
+    def list_channels(self) -> List[Dict]:
+        """
+        List all chat channels with user counts
+
+        Returns:
+            List of channel dictionaries
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    c.id,
+                    c.channel_name,
+                    c.created_by,
+                    c.topic,
+                    c.created_at,
+                    COUNT(DISTINCT p.callsign) as user_count
+                FROM chat_channels c
+                LEFT JOIN chat_presence p ON c.id = p.channel_id
+                GROUP BY c.id
+                ORDER BY c.channel_name
+            """)
+
+            channels = []
+            for row in cursor.fetchall():
+                channels.append(dict(row))
+            return channels
+
+    def join_channel(self, channel_id: int, callsign: str):
+        """
+        Mark a user as present in a channel
+
+        Args:
+            channel_id: Channel ID
+            callsign: Callsign joining
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO chat_presence (channel_id, callsign, joined_at, last_seen)
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, (channel_id, callsign.upper()))
+
+    def leave_channel(self, channel_id: int, callsign: str):
+        """
+        Remove a user from a channel
+
+        Args:
+            channel_id: Channel ID
+            callsign: Callsign leaving
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM chat_presence
+                WHERE channel_id = ? AND callsign = ?
+            """, (channel_id, callsign.upper()))
+
+    def leave_all_channels(self, callsign: str):
+        """
+        Remove a user from all channels
+
+        Args:
+            callsign: Callsign leaving
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM chat_presence WHERE callsign = ?
+            """, (callsign.upper(),))
+
+    def get_channel_users(self, channel_id: int) -> List[str]:
+        """
+        Get list of users in a channel
+
+        Args:
+            channel_id: Channel ID
+
+        Returns:
+            List of callsigns
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT callsign FROM chat_presence
+                WHERE channel_id = ?
+                ORDER BY joined_at
+            """, (channel_id,))
+
+            return [row['callsign'] for row in cursor.fetchall()]
+
+    def get_user_channels(self, callsign: str) -> List[Dict]:
+        """
+        Get list of channels a user is in
+
+        Args:
+            callsign: Callsign
+
+        Returns:
+            List of channel dictionaries
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT c.id, c.channel_name, c.topic, p.joined_at
+                FROM chat_channels c
+                JOIN chat_presence p ON c.id = p.channel_id
+                WHERE p.callsign = ?
+                ORDER BY p.joined_at DESC
+            """, (callsign.upper(),))
+
+            channels = []
+            for row in cursor.fetchall():
+                channels.append(dict(row))
+            return channels
+
+    def post_chat_message(self, channel_id: int, callsign: str, message: str):
+        """
+        Post a message to a chat channel
+
+        Args:
+            channel_id: Channel ID
+            callsign: Callsign posting
+            message: Message text
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Add message
+            cursor.execute("""
+                INSERT INTO chat_messages (channel_id, callsign, message)
+                VALUES (?, ?, ?)
+            """, (channel_id, callsign.upper(), message))
+
+            # Update last_seen
+            cursor.execute("""
+                UPDATE chat_presence
+                SET last_seen = CURRENT_TIMESTAMP
+                WHERE channel_id = ? AND callsign = ?
+            """, (channel_id, callsign.upper()))
+
+    def get_recent_messages(self, channel_id: int, limit: int = 4, hours: int = 24) -> List[Dict]:
+        """
+        Get recent messages from a channel
+
+        Args:
+            channel_id: Channel ID
+            limit: Maximum number of messages
+            hours: Only messages from last N hours
+
+        Returns:
+            List of message dictionaries
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT callsign, message, timestamp
+                FROM chat_messages
+                WHERE channel_id = ?
+                  AND timestamp >= datetime('now', '-' || ? || ' hours')
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (channel_id, hours, limit))
+
+            messages = []
+            for row in cursor.fetchall():
+                messages.append(dict(row))
+            # Reverse to get chronological order
+            return list(reversed(messages))
+
+    def get_channel_by_name(self, channel_name: str) -> Optional[Dict]:
+        """
+        Get channel info by name
+
+        Args:
+            channel_name: Channel name
+
+        Returns:
+            Channel dict or None
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, channel_name, created_by, topic, created_at
+                FROM chat_channels
+                WHERE channel_name = ?
+            """, (channel_name.upper(),))
+
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def cleanup_stale_presence(self, hours: int = 1):
+        """
+        Remove users who haven't been seen recently
+
+        Args:
+            hours: Remove presence older than N hours
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM chat_presence
+                WHERE last_seen < datetime('now', '-' || ? || ' hours')
+            """, (hours,))
+
+    def set_channel_topic(self, channel_id: int, topic: str):
+        """
+        Set the topic for a channel
+
+        Args:
+            channel_id: Channel ID
+            topic: New topic
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE chat_channels SET topic = ? WHERE id = ?
+            """, (topic, channel_id))
+
+    def get_total_chat_users(self) -> int:
+        """
+        Get count of unique users currently in any chat channel
+
+        Returns:
+            Number of unique users
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(DISTINCT callsign) as count FROM chat_presence
+            """)
+            row = cursor.fetchone()
+            return row['count'] if row else 0
