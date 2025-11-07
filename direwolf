@@ -1,2 +1,2 @@
 #!/usr/bin/env sh
-direwolf -t 0 -c config/direwolf.conf
+direwolf -t 0 -c config/direwolf.conf | stdbuf -oL awk '{print strftime("%Y-%m-%d %H:%M:%S"), $0;}' | tee -a logs/direwolf.log
